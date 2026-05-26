@@ -16,7 +16,8 @@ import argparse, json, os
 from slide_render import (
     render_cover, render_list, render_statement, render_message_over_image,
     render_multi_image, render_before_after, render_three_column,
-    render_person_text, render_cta,
+    render_person_text, render_cta, render_content, render_offer,
+    render_process,
 )
 from pptx import Presentation
 from pptx.util import Inches
@@ -36,13 +37,19 @@ RENDERERS = {
     "multi_image": render_multi_image,
     "before_after": render_before_after,
     "three_column": render_three_column,
+    "content":     render_content,
+    "process":     render_process,
+    "offer":       render_offer,
     "person":      render_person_text,
     "cta":         render_cta,
 }
 
 BACKGROUND_ALIASES = {
     "before_after": "multi_image",
-    "three_column": "content",
+    "three_column": "statement",
+    "content": "multi_image",
+    "process": "statement",
+    "offer": "cta",
 }
 
 # message スライド用の一時背景（assets 内の webp）
@@ -107,6 +114,9 @@ def resolve_bg_type(stype, pool, color):
         return stype
     return BACKGROUND_ALIASES.get(stype, stype)
 
+def normalize_slide(stype, content):
+    return stype, content
+
 
 def build_deck(spec_path, pool_dir="backgrounds", output_pptx=None, work_dir="_slides", color="terracotta"):
     os.makedirs(work_dir, exist_ok=True)
@@ -125,7 +135,7 @@ def build_deck(spec_path, pool_dir="backgrounds", output_pptx=None, work_dir="_s
     valid_message_fallbacks = [p for p in MESSAGE_FALLBACKS if os.path.exists(p)]
     for i, sl in enumerate(slides, 1):
         stype = sl["type"]
-        content = sl["content"]
+        stype, content = normalize_slide(stype, sl["content"])
         slide_color = sl.get("color", default_color)
         if stype not in RENDERERS:
             raise ValueError(f"スライド{i}: 未知の型 '{stype}'")

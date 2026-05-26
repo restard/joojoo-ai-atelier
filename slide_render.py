@@ -154,6 +154,18 @@ def paste_photo_cover_image(base, photo, box):
     photo = photo.crop((left, top, left + bw, top + bh))
     base.paste(photo, (x1, y1))
 
+def paste_image_contain(base, image_path, box, fill=(252, 249, 242)):
+    """画像全体が見切れないように、指定ボックス内へ収めて配置する。"""
+    photo = Image.open(image_path).convert("RGB")
+    x1, y1, x2, y2 = [int(v) for v in box]
+    bw, bh = x2 - x1, y2 - y1
+    scale = min(bw / photo.width, bh / photo.height)
+    nw, nh = int(photo.width * scale), int(photo.height * scale)
+    photo = photo.resize((nw, nh), Image.LANCZOS)
+    card = Image.new("RGB", (bw, bh), fill)
+    card.paste(photo, ((bw - nw) // 2, (bh - nh) // 2))
+    base.paste(card, (x1, y1))
+
 def make_placeholder(w, h, label, color=(170, 150, 132)):
     """テスト用の写真プレースホルダー"""
     ph = Image.new("RGB", (w, h), color)
@@ -346,6 +358,68 @@ def render_multi_image(bg_path, output_path, content, safe_zone=(0.12,0.15,0.88,
     _save_canvas(img, output_path, W_out, H_out)
     print(f"[E 複数画像]  {output_path}")
 
+# ===== 型J：コンテンツ配置 =====
+def render_content(bg_path, output_path, content, safe_zone=(0.12,0.14,0.88,0.84)):
+    img, W_out, H_out = _prepare_canvas(bg_path)
+    W, H = img.size
+    draw = ImageDraw.Draw(img)
+    sz_l, sz_r = W*safe_zone[0], W*safe_zone[2]
+    sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
+    cx = (sz_l + sz_r) / 2
+
+    title = content.get("title")
+    subtitle = content.get("subtitle")
+    columns = int(content.get("columns") or 1)
+    items = content.get("items", [])
+    if columns < 1 or columns > 4:
+        raise ValueError("content.columns は1〜4で指定してください")
+    if not items:
+        raise ValueError("content.items が必要です")
+
+    title_sz, sub_sz, caption_sz = int(W*0.036), int(W*0.020), int(W*0.016)
+    f_title = font(SERIF_BLACK, title_sz)
+    f_sub = font(SERIF_MED, sub_sz)
+    f_cap = font(SERIF_MED, caption_sz)
+
+    y = sz_t
+    if title:
+        draw_centered(draw, title, f_title, INK_DARK, cx, y)
+        y += title_sz + int(H*0.020)
+    if subtitle:
+        draw_centered(draw, subtitle, f_sub, INK_MID, cx, y)
+        y += sub_sz + int(H*0.045)
+    elif title:
+        y += int(H*0.030)
+
+    if not title and not subtitle:
+        y = sz_t
+
+    gap = int(W * (0.030 if columns >= 3 else 0.050))
+    caption_h = caption_sz + int(H*0.020) if any(it.get("caption") for it in items) else 0
+    area_h = sz_b - y - caption_h
+    area_w = sz_r - sz_l
+
+    if columns == 1:
+        box = (sz_l, y, sz_r, y + area_h)
+        paste_image_contain(img, items[0]["image"], box)
+        if items[0].get("caption"):
+            draw_centered(draw, items[0]["caption"], f_cap, INK_MID, cx, y + area_h + int(H*0.018))
+    else:
+        col_w = (area_w - gap*(columns-1)) / columns
+        for i in range(columns):
+            if i >= len(items):
+                break
+            x1 = sz_l + i * (col_w + gap)
+            x2 = x1 + col_w
+            box = (x1, y, x2, y + area_h)
+            paste_photo_cover(img, items[i]["image"], box)
+            if items[i].get("caption"):
+                draw_centered(draw, items[i]["caption"], f_cap, INK_MID,
+                              (x1+x2)/2, y + area_h + int(H*0.018))
+
+    _save_canvas(img, output_path, W_out, H_out)
+    print(f"[J Content]   {output_path}")
+
 # ===== 型H：before/after =====
 def render_before_after(bg_path, output_path, content, safe_zone=(0.10,0.15,0.90,0.84)):
     img, W_out, H_out = _prepare_canvas(bg_path)
@@ -490,6 +564,74 @@ def render_three_column(bg_path, output_path, content, safe_zone=(0.17,0.16,0.83
     _save_canvas(img, output_path, W_out, H_out)
     print(f"[I 3カラム]   {output_path}")
 
+# ===== 型L：プロセス =====
+def render_process(bg_path, output_path, content, safe_zone=(0.13,0.15,0.87,0.84)):
+    img, W_out, H_out = _prepare_canvas(bg_path)
+    W, H = img.size
+    draw = ImageDraw.Draw(img)
+    sz_l, sz_r = W*safe_zone[0], W*safe_zone[2]
+    sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
+    cx = (sz_l + sz_r) / 2
+
+    eyebrow_sz, title_sz = int(W*0.018), int(W*0.038)
+    label_sz, step_title_sz, body_sz = int(W*0.019), int(W*0.027), int(W*0.017)
+    f_eye = font(SERIF_REG, eyebrow_sz)
+    f_title = font(SERIF_BLACK, title_sz)
+    f_label = font(SANS_REG, label_sz)
+    f_step_title = font(SERIF_BLACK, step_title_sz)
+    f_body = font(SERIF_MED, body_sz)
+
+    y = sz_t
+    if content.get("eyebrow"):
+        draw_tracked(draw, (0, y), content["eyebrow"], f_eye, INK_MID,
+                     tracking=int(eyebrow_sz*0.22), center_x=cx)
+        y += eyebrow_sz + int(H*0.026)
+    draw_centered(draw, content.get("title") or content.get("heading", ""), f_title, INK_DARK, cx, y)
+    y += title_sz + int(H*0.065)
+
+    steps = content.get("steps", [])
+    if not steps:
+        raise ValueError("process.steps が必要です")
+
+    columns = min(int(content.get("columns") or len(steps)), len(steps))
+    gap = int(W * 0.035)
+    card_w = ((sz_r - sz_l) - gap*(columns-1)) / columns
+    card_h = sz_b - y
+    body_line_h = int(body_sz * 1.55)
+
+    for i, step in enumerate(steps[:columns]):
+        x1 = sz_l + i * (card_w + gap)
+        x2 = x1 + card_w
+        card_cx = (x1 + x2) / 2
+        label = step.get("label", f"STEP {i+1}")
+        title = step.get("title", "")
+        body = step.get("body") or []
+        if isinstance(body, str):
+            body = [body]
+
+        card = Image.new("RGBA", (int(card_w), int(card_h)), (252, 249, 242, 218))
+        shadow = Image.new("RGBA", (int(card_w + 24*SUPERSAMPLE), int(card_h + 24*SUPERSAMPLE)), (0,0,0,0))
+        sd = ImageDraw.Draw(shadow)
+        sd.rectangle([10*SUPERSAMPLE, 10*SUPERSAMPLE, 10*SUPERSAMPLE+card.width, 10*SUPERSAMPLE+card.height], fill=(40, 25, 15, 42))
+        shadow = shadow.filter(ImageFilter.GaussianBlur(8*SUPERSAMPLE))
+        img.paste(shadow, (int(x1 - 8*SUPERSAMPLE), int(y - 2*SUPERSAMPLE)), shadow)
+        img.paste(card, (int(x1), int(y)), card)
+
+        ty = y + int(H*0.052)
+        draw_tracked(draw, (0, ty), label, f_label, INK_MID,
+                     tracking=int(label_sz*0.10), center_x=card_cx)
+        ty += label_sz + int(H*0.035)
+        draw_centered(draw, title, f_step_title, INK_DARK, card_cx, ty)
+        ty += step_title_sz + int(H*0.046)
+
+        body_lines = []
+        for line in body:
+            body_lines.extend(wrap_text(draw, line, f_body, card_w * 0.72))
+        draw_centered_lines(draw, body_lines, f_body, INK_MID, card_cx, ty, body_line_h)
+
+    _save_canvas(img, output_path, W_out, H_out)
+    print(f"[L Process]   {output_path}")
+
 # ===== 型F：人物写真＋テキスト =====
 def render_person_text(bg_path, output_path, content, safe_zone=(0.12,0.16,0.88,0.84)):
     img, W_out, H_out = _prepare_canvas(bg_path)
@@ -575,6 +717,73 @@ def render_cta(bg_path, output_path, content, safe_zone=(0.20,0.14,0.80,0.86)):
     img.paste(card,(int(cx-card.width/2),int(y)))
     _save_canvas(img, output_path, W_out, H_out)
     print(f"[G CTA/QR]    {output_path}")
+
+# ===== 型K：オファー =====
+def render_offer(bg_path, output_path, content, safe_zone=(0.14,0.14,0.86,0.86)):
+    img, W_out, H_out = _prepare_canvas(bg_path)
+    W, H = img.size
+    draw = ImageDraw.Draw(img)
+    sz_l, sz_r = W*safe_zone[0], W*safe_zone[2]
+    sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
+    cx = (sz_l + sz_r) / 2
+
+    label_sz, title_sz, name_sz, price_sz, body_sz = (
+        int(W*0.018), int(W*0.043), int(W*0.026), int(W*0.034), int(W*0.019)
+    )
+    f_label = font(SANS_REG, label_sz)
+    f_title = font(SERIF_BLACK, title_sz)
+    f_name = font(SERIF_MED, name_sz)
+    f_price = font(SERIF_BLACK, price_sz)
+    f_body = font(SERIF_MED, body_sz)
+
+    label = content.get("label")
+    title = content.get("title", "")
+    offer_name = content.get("offer_name")
+    price = content.get("price")
+    body = content.get("body") or []
+    if isinstance(body, str):
+        body = [body]
+
+    block_lines = []
+    if label:
+        block_lines.append(("label", label))
+    block_lines.append(("title", title))
+    if offer_name:
+        block_lines.append(("name", offer_name))
+    if price:
+        block_lines.append(("price", price))
+
+    line_gap = int(H * 0.030)
+    body_line_h = int(body_sz * 1.75)
+    block_h = 0
+    for kind, _ in block_lines:
+        block_h += {"label": label_sz, "title": title_sz, "name": name_sz, "price": price_sz}[kind]
+        block_h += line_gap
+    block_h += len(body) * body_line_h
+
+    y = sz_t + ((sz_b - sz_t) - block_h) * 0.46
+    for kind, text in block_lines:
+        if kind == "label":
+            draw_tracked(draw, (0, y), text, f_label, INK_MID,
+                         tracking=int(label_sz*0.12), center_x=cx)
+            y += label_sz + line_gap
+        elif kind == "title":
+            draw_centered(draw, text, f_title, INK_DARK, cx, y)
+            y += title_sz + line_gap
+        elif kind == "name":
+            draw_centered(draw, text, f_name, INK_MID, cx, y)
+            y += name_sz + line_gap
+        elif kind == "price":
+            draw_centered(draw, text, f_price, INK_DARK, cx, y)
+            y += price_sz + line_gap
+
+    for line in body:
+        for wrapped in wrap_text(draw, line, f_body, (sz_r - sz_l) * 0.78):
+            draw_centered(draw, wrapped, f_body, INK_MID, cx, y)
+            y += body_line_h
+
+    _save_canvas(img, output_path, W_out, H_out)
+    print(f"[K Offer]     {output_path}")
 
 
 if __name__ == "__main__":
