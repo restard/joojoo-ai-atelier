@@ -1,0 +1,30 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Secrets / local env
+.env
+.env.*
+
+# Generated slide images and temporary outputs
+_slides/
+outputs/
+
+# Generated deliverables may contain customer data.
+dist/
+
+# Source/customer materials may contain customer data.
+materials/
+assets/
+refs/
+specs/
+backgrounds/
+docs/
+
+# Local backups / scratch copies
+image_api copy.py
+
+# Local app/plugin settings
+.claude/
