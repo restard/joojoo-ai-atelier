@@ -27,6 +27,7 @@
                     "ok",
                     "filename",
                     "relative_path",
+                    "download_url",
                     "size_bytes"
                   ],
                   "properties": {
@@ -37,6 +38,9 @@
                       "type": "string"
                     },
                     "relative_path": {
+                      "type": "string"
+                    },
+                    "download_url": {
                       "type": "string"
                     },
                     "size_bytes": {
@@ -84,6 +88,7 @@
                     "ok",
                     "filename",
                     "relative_path",
+                    "download_url",
                     "size_bytes"
                   ],
                   "properties": {
@@ -94,6 +99,9 @@
                       "type": "string"
                     },
                     "relative_path": {
+                      "type": "string"
+                    },
+                    "download_url": {
                       "type": "string"
                     },
                     "size_bytes": {
@@ -153,6 +161,7 @@
                     "ok",
                     "filename",
                     "relative_path",
+                    "download_url",
                     "size_bytes"
                   ],
                   "properties": {
@@ -163,6 +172,9 @@
                       "type": "string"
                     },
                     "relative_path": {
+                      "type": "string"
+                    },
+                    "download_url": {
                       "type": "string"
                     },
                     "size_bytes": {
