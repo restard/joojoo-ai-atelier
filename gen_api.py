@@ -220,6 +220,17 @@ class GenDeckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+        if path == "/":
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "service": "genDeck PPTX Generator",
+                    "actions": ["generateSmokeDeck", "generateDeckFromJsonQuery"],
+                    "openapi_url": f"{self._public_base_url()}/openapi.json",
+                },
+            )
+            return
         if path == "/health":
             self._send_json(200, {"ok": True})
             return
