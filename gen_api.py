@@ -6,14 +6,15 @@ Endpoints:
   GET  /health
   GET  /openapi.json
   GET  /generate-smoke
+  GET  /generate-json
   POST /generate
 
-POST /generate accepts the same deck JSON shape as build_deck.py, saves a PPTX
-file locally, and returns JSON metadata. This is intentionally stdlib-only so
-the thin E2E can run without adding a web framework yet.
+POST /generate accepts a deck JSON string, saves a PPTX file locally, and
+returns JSON metadata. GET /generate-json is a Custom GPT Actions fallback for
+environments where POST request bodies fail before reaching the API.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 import argparse
 import json
 import os
@@ -150,6 +151,45 @@ def openapi_schema(host, port, public_url=None):
                     },
                 }
             },
+            "/generate-json": {
+                "get": {
+                    "operationId": "generateDeckFromJsonQuery",
+                    "summary": "Generate a PowerPoint deck from a deck JSON query string",
+                    "description": "Accepts a deck_json query parameter, saves a PPTX on the API server, and returns JSON metadata. This is a GET fallback for Custom GPT Actions environments where POST request bodies fail before reaching the API.",
+                    "parameters": [
+                        {
+                            "name": "deck_json",
+                            "in": "query",
+                            "required": True,
+                            "schema": {"type": "string"},
+                            "description": "A JSON string containing deck_title, color, and slides.",
+                        }
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Generation result",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "required": ["ok", "filename", "relative_path", "size_bytes"],
+                                        "properties": {
+                                            "ok": {"type": "boolean"},
+                                            "filename": {"type": "string"},
+                                            "relative_path": {"type": "string"},
+                                            "size_bytes": {"type": "integer"},
+                                            "message": {"type": "string"},
+                                        },
+                                        "additionalProperties": True,
+                                    }
+                                }
+                            },
+                        },
+                        "400": {"description": "Invalid deck_json"},
+                        "500": {"description": "Generation failed"},
+                    },
+                }
+            },
             "/generate": {
                 "post": {
                     "operationId": "generateDeck",
@@ -223,7 +263,8 @@ class GenDeckHandler(BaseHTTPRequestHandler):
         self._send_json(status, payload)
 
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
         if path == "/health":
             self._send_json(200, {"ok": True})
             return
@@ -245,6 +286,25 @@ class GenDeckHandler(BaseHTTPRequestHandler):
             return
         if path == "/generate-smoke":
             self._generate(SMOKE_DECK)
+            return
+        if path == "/generate-json":
+            params = parse_qs(parsed_url.query)
+            deck_json = params.get("deck_json", [""])[0]
+            if not deck_json:
+                self._send_error_json(400, "deck_json query parameter is required")
+                return
+            try:
+                payload = json.loads(deck_json)
+            except json.JSONDecodeError as exc:
+                self._send_error_json(400, "Invalid deck_json", str(exc))
+                return
+            if not isinstance(payload, dict):
+                self._send_error_json(400, "deck_json must decode to a JSON object")
+                return
+            if not payload.get("deck_title") or not isinstance(payload.get("slides"), list):
+                self._send_error_json(400, "deck_title and slides are required")
+                return
+            self._generate(payload)
             return
         self._send_error_json(404, "Not found")
 
