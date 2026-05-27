@@ -7,6 +7,7 @@ Endpoints:
   GET  /openapi.json
   GET  /generate-smoke
   GET  /generate-json
+  GET  /files/{filename}
   POST /generate
 
 POST /generate accepts a deck JSON string, saves a PPTX file locally, and
@@ -14,7 +15,7 @@ returns JSON metadata. GET /generate-json is a Custom GPT Actions fallback for
 environments where POST request bodies fail before reaching the API.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 import argparse
 import json
 import os
@@ -134,11 +135,12 @@ def openapi_schema(host, port, public_url=None):
                                 "application/json": {
                                     "schema": {
                                         "type": "object",
-                                        "required": ["ok", "filename", "relative_path", "size_bytes"],
+                                        "required": ["ok", "filename", "relative_path", "download_url", "size_bytes"],
                                         "properties": {
                                             "ok": {"type": "boolean"},
                                             "filename": {"type": "string"},
                                             "relative_path": {"type": "string"},
+                                            "download_url": {"type": "string"},
                                             "size_bytes": {"type": "integer"},
                                             "message": {"type": "string"},
                                         },
@@ -172,11 +174,12 @@ def openapi_schema(host, port, public_url=None):
                                 "application/json": {
                                     "schema": {
                                         "type": "object",
-                                        "required": ["ok", "filename", "relative_path", "size_bytes"],
+                                        "required": ["ok", "filename", "relative_path", "download_url", "size_bytes"],
                                         "properties": {
                                             "ok": {"type": "boolean"},
                                             "filename": {"type": "string"},
                                             "relative_path": {"type": "string"},
+                                            "download_url": {"type": "string"},
                                             "size_bytes": {"type": "integer"},
                                             "message": {"type": "string"},
                                         },
@@ -220,11 +223,12 @@ def openapi_schema(host, port, public_url=None):
                                 "application/json": {
                                     "schema": {
                                         "type": "object",
-                                        "required": ["ok", "filename", "relative_path", "size_bytes"],
+                                        "required": ["ok", "filename", "relative_path", "download_url", "size_bytes"],
                                         "properties": {
                                             "ok": {"type": "boolean"},
                                             "filename": {"type": "string"},
                                             "relative_path": {"type": "string"},
+                                            "download_url": {"type": "string"},
                                             "size_bytes": {"type": "integer"},
                                             "message": {"type": "string"},
                                         },
@@ -306,7 +310,28 @@ class GenDeckHandler(BaseHTTPRequestHandler):
                 return
             self._generate(payload)
             return
+        if path.startswith("/files/"):
+            self._send_pptx(path)
+            return
         self._send_error_json(404, "Not found")
+
+    def do_HEAD(self):
+        path = urlparse(self.path).path
+        if path in ("/", "/health"):
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            return
+        if path.startswith("/files/"):
+            self._send_pptx(path, head_only=True)
+            return
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -364,12 +389,15 @@ class GenDeckHandler(BaseHTTPRequestHandler):
                 os.unlink(spec_path)
 
             filename = os.path.basename(output_pptx)
+            relative_path = os.path.join("dist", "api", filename)
+            download_url = f"{self._public_base_url()}/files/{filename}"
             self._send_json(
                 200,
                 {
                     "ok": True,
                     "filename": filename,
-                    "relative_path": os.path.join("dist", "api", filename),
+                    "relative_path": relative_path,
+                    "download_url": download_url,
                     "size_bytes": os.path.getsize(output_pptx),
                     "message": "PPTX generated and saved on the API server.",
                 },
@@ -377,6 +405,40 @@ class GenDeckHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             traceback.print_exc()
             self._send_error_json(500, "Generation failed", str(exc))
+
+    def _public_base_url(self):
+        if self.server.public_url:
+            return self.server.public_url
+        forwarded_proto = self.headers.get("X-Forwarded-Proto")
+        host = self.headers.get("Host")
+        if forwarded_proto and host:
+            return f"{forwarded_proto}://{host}"
+        return f"http://{self.server.host}:{self.server.server_port}"
+
+    def _send_pptx(self, path, head_only=False):
+        filename = os.path.basename(unquote(path.removeprefix("/files/")))
+        if not filename.lower().endswith(".pptx"):
+            self._send_error_json(404, "Not found")
+            return
+        file_path = os.path.join(ROOT_DIR, "dist", "api", filename)
+        if not os.path.isfile(file_path):
+            self._send_error_json(404, "File not found")
+            return
+
+        with open(file_path, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        )
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(body)
+        self.close_connection = True
 
     def log_message(self, fmt, *args):
         print("%s - - [%s] %s" % (self.address_string(), self.log_date_time_string(), fmt % args))
