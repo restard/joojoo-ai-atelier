@@ -57,6 +57,66 @@
         }
       }
     },
+    "/generate-json": {
+      "get": {
+        "operationId": "generateDeckFromJsonQuery",
+        "summary": "Generate a PowerPoint deck from a deck JSON query string",
+        "description": "Accepts a deck_json query parameter, saves a PPTX on the API server, and returns JSON metadata. This is a GET fallback for Custom GPT Actions environments where POST request bodies fail before reaching the API.",
+        "parameters": [
+          {
+            "name": "deck_json",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A JSON string containing deck_title, color, and slides."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "filename",
+                    "relative_path",
+                    "size_bytes"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "relative_path": {
+                      "type": "string"
+                    },
+                    "size_bytes": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid deck_json"
+          },
+          "500": {
+            "description": "Generation failed"
+          }
+        }
+      }
+    },
     "/generate": {
       "post": {
         "operationId": "generateDeck",
