@@ -166,7 +166,6 @@ def openapi_schema(host, port, public_url=None):
                                         "deck_title": {"type": "string"},
                                         "color": {
                                             "type": "string",
-                                            "enum": ["terracotta", "cream", "deep_green"],
                                             "default": "terracotta",
                                         },
                                         "slides": {
@@ -174,35 +173,6 @@ def openapi_schema(host, port, public_url=None):
                                             "minItems": 1,
                                             "items": {
                                                 "type": "object",
-                                                "required": ["type", "content"],
-                                                "properties": {
-                                                    "id": {"type": "string"},
-                                                    "source_page": {"type": "string"},
-                                                    "role": {"type": "string"},
-                                                    "type": {
-                                                        "type": "string",
-                                                        "enum": [
-                                                            "statement",
-                                                            "content",
-                                                            "process",
-                                                            "offer",
-                                                            "cta",
-                                                            "cover",
-                                                            "list",
-                                                            "message",
-                                                            "multi_image",
-                                                            "before_after",
-                                                            "three_column",
-                                                            "person",
-                                                        ],
-                                                    },
-                                                    "color": {"type": "string"},
-                                                    "background": {"type": "string"},
-                                                    "content": {
-                                                        "type": "object",
-                                                        "additionalProperties": True,
-                                                    },
-                                                },
                                                 "additionalProperties": True,
                                             },
                                         },
