@@ -114,7 +114,73 @@ def resolve_bg_type(stype, pool, color):
         return stype
     return BACKGROUND_ALIASES.get(stype, stype)
 
+def text_lines_from_content(content, fallback="Generated slide"):
+    if not isinstance(content, dict):
+        return [str(content or fallback)]
+    for key in ("lines", "title", "heading", "body", "subtext"):
+        value = content.get(key)
+        if isinstance(value, list):
+            return [str(v) for v in value if str(v).strip()] or [fallback]
+        if isinstance(value, str) and value.strip():
+            return [value]
+    items = content.get("items") or []
+    lines = []
+    for item in items:
+        if isinstance(item, dict):
+            title = item.get("title") or item.get("label") or item.get("name")
+            body = item.get("body") or item.get("text") or item.get("caption")
+            line = " / ".join(str(v) for v in (title, body) if v)
+            if line:
+                lines.append(line)
+        elif str(item).strip():
+            lines.append(str(item))
+    return lines or [fallback]
+
+
+def items_to_steps(items):
+    steps = []
+    for idx, item in enumerate(items or [], 1):
+        if isinstance(item, dict):
+            title = item.get("title") or item.get("label") or item.get("name") or f"Step {idx}"
+            body = item.get("body") or item.get("text") or item.get("caption") or ""
+        else:
+            title = f"Step {idx}"
+            body = str(item)
+        steps.append({"label": str(idx), "title": str(title), "body": str(body)})
+    return steps
+
+
 def normalize_slide(stype, content):
+    if not isinstance(content, dict):
+        return "statement", {"lines": [str(content or "Generated slide")]}
+
+    if stype == "content":
+        items = content.get("items") or []
+        has_image_items = any(isinstance(item, dict) and item.get("image") for item in items)
+        if items and not has_image_items:
+            return "process", {
+                "title": content.get("title") or content.get("heading") or "Overview",
+                "steps": items_to_steps(items),
+                "columns": min(max(len(items), 1), 4),
+            }
+        if not items:
+            return "statement", {"lines": text_lines_from_content(content, "Overview")}
+
+    if stype == "process" and not content.get("steps"):
+        items = content.get("items") or []
+        if items:
+            content = dict(content)
+            content["steps"] = items_to_steps(items)
+
+    if stype == "statement" and not content.get("lines"):
+        content = dict(content)
+        content["lines"] = text_lines_from_content(content)
+
+    if stype == "cta":
+        content = dict(content)
+        content.setdefault("heading", content.get("title") or "Next Step")
+        content.setdefault("qr_data", "https://gen-deck.onrender.com")
+
     return stype, content
 
 
@@ -138,7 +204,8 @@ def build_deck(spec_path, pool_dir="backgrounds", output_pptx=None, work_dir="_s
         stype, content = normalize_slide(stype, sl["content"])
         slide_color = sl.get("color", default_color)
         if stype not in RENDERERS:
-            raise ValueError(f"スライド{i}: 未知の型 '{stype}'")
+            stype = "statement"
+            content = {"lines": text_lines_from_content(content, f"Slide {i}")}
         # 背景：明示指定があればそれ、なければプールから選択
         if stype == "message":
             if sl.get("background"):
