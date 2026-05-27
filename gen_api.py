@@ -193,55 +193,6 @@ def openapi_schema(host, port, public_url=None):
                     },
                 }
             },
-            "/generate": {
-                "post": {
-                    "operationId": "generateDeck",
-                    "summary": "Generate a PowerPoint deck",
-                    "description": "Accepts a deck JSON string, saves a PPTX on the API server, and returns JSON metadata.",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["deck_json"],
-                                    "properties": {
-                                        "deck_json": {
-                                            "type": "string",
-                                            "description": "A JSON string containing deck_title, color, and slides.",
-                                        },
-                                    },
-                                    "additionalProperties": False,
-                                }
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Generation result",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "required": ["ok", "filename", "relative_path", "download_url", "size_bytes"],
-                                        "properties": {
-                                            "ok": {"type": "boolean"},
-                                            "filename": {"type": "string"},
-                                            "relative_path": {"type": "string"},
-                                            "download_url": {"type": "string"},
-                                            "size_bytes": {"type": "integer"},
-                                            "message": {"type": "string"},
-                                        },
-                                        "additionalProperties": True,
-                                    }
-                                }
-                            },
-                        },
-                        "400": {"description": "Invalid deck spec"},
-                        "500": {"description": "Generation failed"},
-                    },
-                }
-            },
         },
     }
 
