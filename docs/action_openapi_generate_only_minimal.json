@@ -1,0 +1,88 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "genDeck Generate Minimal",
+    "version": "0.1.0",
+    "description": "Minimal Custom GPT Action schema for generating a PPTX deck."
+  },
+  "servers": [
+    {
+      "url": "https://craftwork-relearn-pectin.ngrok-free.dev"
+    }
+  ],
+  "paths": {
+    "/generate": {
+      "post": {
+        "operationId": "generateDeck",
+        "summary": "Generate a PowerPoint deck",
+        "description": "Generate a PPTX from a deck JSON object and return metadata.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "deck_title",
+                  "slides"
+                ],
+                "properties": {
+                  "deck_title": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string"
+                  },
+                  "slides": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "relative_path": {
+                      "type": "string"
+                    },
+                    "size_bytes": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

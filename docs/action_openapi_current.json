@@ -1,0 +1,189 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "genDeck PPTX Generator",
+    "version": "0.1.0",
+    "description": "Generate a PPTX from a deck JSON spec."
+  },
+  "servers": [
+    {
+      "url": "https://craftwork-relearn-pectin.ngrok-free.dev"
+    }
+  ],
+  "paths": {
+    "/generate-smoke": {
+      "get": {
+        "operationId": "generateSmokeDeck",
+        "summary": "Generate a smoke-test PowerPoint deck",
+        "description": "Generates a fixed one-slide PPTX for Custom GPT Action connectivity testing and returns JSON metadata.",
+        "responses": {
+          "200": {
+            "description": "Generation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "filename",
+                    "relative_path",
+                    "size_bytes"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "relative_path": {
+                      "type": "string"
+                    },
+                    "size_bytes": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Generation failed"
+          }
+        }
+      }
+    },
+    "/generate": {
+      "post": {
+        "operationId": "generateDeck",
+        "summary": "Generate a PowerPoint deck",
+        "description": "Accepts a deck JSON payload, saves a PPTX on the API server, and returns JSON metadata.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "deck_title",
+                  "slides"
+                ],
+                "properties": {
+                  "deck_title": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string",
+                    "enum": [
+                      "terracotta",
+                      "cream",
+                      "deep_green"
+                    ],
+                    "default": "terracotta"
+                  },
+                  "slides": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "type",
+                        "content"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "source_page": {
+                          "type": "string"
+                        },
+                        "role": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "statement",
+                            "content",
+                            "process",
+                            "offer",
+                            "cta",
+                            "cover",
+                            "list",
+                            "message",
+                            "multi_image",
+                            "before_after",
+                            "three_column",
+                            "person"
+                          ]
+                        },
+                        "color": {
+                          "type": "string"
+                        },
+                        "background": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "filename",
+                    "relative_path",
+                    "size_bytes"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "relative_path": {
+                      "type": "string"
+                    },
+                    "size_bytes": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid deck spec"
+          },
+          "500": {
+            "description": "Generation failed"
+          }
+        }
+      }
+    }
+  }
+}

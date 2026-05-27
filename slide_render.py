@@ -6,12 +6,34 @@
 """
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
+import os
 
 # ---- フォント ----
-SERIF_BLACK = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
-SERIF_MED   = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
-SERIF_REG   = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
-SANS_REG    = "/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc"
+def first_existing(*paths):
+    for path in paths:
+        if path and os.path.exists(path):
+            return path
+    return paths[-1]
+
+SERIF_BLACK = first_existing(
+    "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+)
+SERIF_MED = first_existing(
+    "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+)
+SERIF_REG = SERIF_MED
+SANS_REG = first_existing(
+    "/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+)
 JP_INDEX = 0
 SLIDE_ASPECT = 16 / 9
 

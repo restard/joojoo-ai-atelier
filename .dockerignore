@@ -1,0 +1,17 @@
+.git
+.DS_Store
+__pycache__/
+*.pyc
+.env
+.env.*
+_slides/
+dist/
+outputs/
+materials/
+refs/
+assets/
+backgrounds/
+specs/*
+!specs/deck_sample.json
+backgrounds/_bk/
+image_api copy.py

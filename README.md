@@ -11,6 +11,7 @@
 | `image_api.py` | OpenAI Images APIで背景プールを生成する |
 | `slide_render.py` | 背景画像とコンテンツから各スライド画像を描画する |
 | `build_deck.py` | deck JSONを読み、スライド画像を生成してPPTXにまとめる |
+| `gen_api.py` | deck JSONを受け取りPPTXを返すローカルAPI |
 | `specs/` | デッキ内容のJSON仕様・サンプル/実データ |
 | `docs/` | 事業計画、仕様書、ロードマップ、棚卸し |
 | `dist/` | 生成済みPPTX |
@@ -187,6 +188,62 @@ cta
 ```
 
 `before_after` は専用背景がない場合 `multi_image` 背景を使います。`three_column` は専用背景がない場合 `statement` 背景を使います。
+
+## ローカルAPIを起動する
+
+Custom GPT / Action 接続の最小確認用に、標準ライブラリだけのAPIを用意しています。
+
+```bash
+python3 gen_api.py --host 127.0.0.1 --port 8787
+```
+
+ngrokなどで公開URLがある場合:
+
+```bash
+python3 gen_api.py --host 127.0.0.1 --port 8787 \
+  --public-url https://xxxx.ngrok-free.app
+```
+
+Render/Fly.ioなどの公開環境では、`PORT` / `HOST` / `PUBLIC_URL` 環境変数も使えます。
+
+```bash
+HOST=0.0.0.0 PORT=8787 PUBLIC_URL=https://example.onrender.com python3 gen_api.py
+```
+
+`PUBLIC_URL` を指定しない場合でも、プロキシ経由の `/openapi.json` では `X-Forwarded-Proto` と `Host` から公開URLを推定します。
+
+確認:
+
+```bash
+curl http://127.0.0.1:8787/health
+curl http://127.0.0.1:8787/openapi.json
+```
+
+PPTX生成:
+
+```bash
+curl -X POST http://127.0.0.1:8787/generate \
+  -H "Content-Type: application/json" \
+  --data-binary @specs/deck_sample.json \
+  -o dist/api/sample_deck_api.pptx
+```
+
+`assets/`、`backgrounds/`、顧客用の `specs/` は顧客情報を含む可能性があるため、Git管理から外しています。背景プールがない公開環境では、`gen_api.py` が安全なデモ背景を自動生成します。
+
+## Renderへデプロイする
+
+Custom GPT Actionsがngrok無料ドメインで失敗する場合に備え、DockerベースでRenderへ置けるようにしています。
+
+使うファイル:
+
+| ファイル | 役割 |
+| --- | --- |
+| `Dockerfile` | Python実行環境とNoto CJKフォントを入れる |
+| `requirements.txt` | PPTX生成に必要なPython依存 |
+| `render.yaml` | Render Blueprint用の最小設定 |
+| `.dockerignore` | デプロイ不要な生成物を除外 |
+
+手順は `docs/Renderデプロイ手順_20260528.md` を参照してください。
 
 ## 生成の流れ
 
