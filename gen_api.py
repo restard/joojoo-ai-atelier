@@ -154,30 +154,21 @@ def openapi_schema(host, port, public_url=None):
                 "post": {
                     "operationId": "generateDeck",
                     "summary": "Generate a PowerPoint deck",
-                    "description": "Accepts a deck JSON payload, saves a PPTX on the API server, and returns JSON metadata.",
+                    "description": "Accepts a deck JSON string, saves a PPTX on the API server, and returns JSON metadata.",
                     "requestBody": {
                         "required": True,
                         "content": {
                             "application/json": {
                                 "schema": {
                                     "type": "object",
-                                    "required": ["deck_title", "slides"],
+                                    "required": ["deck_json"],
                                     "properties": {
-                                        "deck_title": {"type": "string"},
-                                        "color": {
+                                        "deck_json": {
                                             "type": "string",
-                                            "default": "terracotta",
-                                        },
-                                        "slides": {
-                                            "type": "array",
-                                            "minItems": 1,
-                                            "items": {
-                                                "type": "object",
-                                                "additionalProperties": True,
-                                            },
+                                            "description": "A JSON string containing deck_title, color, and slides.",
                                         },
                                     },
-                                    "additionalProperties": True,
+                                    "additionalProperties": False,
                                 }
                             }
                         },
@@ -272,6 +263,11 @@ class GenDeckHandler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 self._send_error_json(400, "Deck spec must be a JSON object")
                 return
+            if isinstance(payload.get("deck_json"), str):
+                payload = json.loads(payload["deck_json"])
+                if not isinstance(payload, dict):
+                    self._send_error_json(400, "deck_json must decode to a JSON object")
+                    return
             if not payload.get("deck_title") or not isinstance(payload.get("slides"), list):
                 self._send_error_json(400, "deck_title and slides are required")
                 return

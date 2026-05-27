@@ -61,7 +61,7 @@
       "post": {
         "operationId": "generateDeck",
         "summary": "Generate a PowerPoint deck",
-        "description": "Accepts a deck JSON payload, saves a PPTX on the API server, and returns JSON metadata.",
+        "description": "Accepts a deck JSON string, saves a PPTX on the API server, and returns JSON metadata.",
         "requestBody": {
           "required": true,
           "content": {
@@ -69,74 +69,15 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "deck_title",
-                  "slides"
+                  "deck_json"
                 ],
                 "properties": {
-                  "deck_title": {
-                    "type": "string"
-                  },
-                  "color": {
+                  "deck_json": {
                     "type": "string",
-                    "enum": [
-                      "terracotta",
-                      "cream",
-                      "deep_green"
-                    ],
-                    "default": "terracotta"
-                  },
-                  "slides": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
-                      "type": "object",
-                      "required": [
-                        "type",
-                        "content"
-                      ],
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "source_page": {
-                          "type": "string"
-                        },
-                        "role": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "statement",
-                            "content",
-                            "process",
-                            "offer",
-                            "cta",
-                            "cover",
-                            "list",
-                            "message",
-                            "multi_image",
-                            "before_after",
-                            "three_column",
-                            "person"
-                          ]
-                        },
-                        "color": {
-                          "type": "string"
-                        },
-                        "background": {
-                          "type": "string"
-                        },
-                        "content": {
-                          "type": "object",
-                          "additionalProperties": true
-                        }
-                      },
-                      "additionalProperties": true
-                    }
+                    "description": "A JSON string containing deck_title, color, and slides."
                   }
                 },
-                "additionalProperties": true
+                "additionalProperties": false
               }
             }
           }
