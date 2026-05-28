@@ -13,7 +13,7 @@
 | `build_deck.py` | deck JSONを読み、スライド画像を生成してPPTXにまとめる |
 | `gen_api.py` | deck JSONを受け取りPPTXを返すローカルAPI |
 | `specs/` | デッキ内容のJSON仕様・サンプル/実データ |
-| `docs/` | 事業計画、仕様書、ロードマップ、棚卸し |
+| `docs/` | 仕様、運用手順、計画、QAメモ。入口は `docs/README.md` |
 | `dist/` | 生成済みPPTX |
 | `backgrounds/` | 生成済み背景プール |
 | `assets/` | 写真、仮画像、message用フォールバック背景など |
@@ -243,7 +243,7 @@ Custom GPT Actionsがngrok無料ドメインで失敗する場合に備え、Doc
 | `render.yaml` | Render Blueprint用の最小設定 |
 | `.dockerignore` | デプロイ不要な生成物を除外 |
 
-手順は `docs/Renderデプロイ手順_20260528.md` を参照してください。
+手順は `docs/deploy/公開デプロイ手順.md` を参照してください。
 
 ## 生成の流れ
 

@@ -29,12 +29,19 @@ specs/*
 !specs/deck_sample.json
 !docs/
 docs/*
-!docs/action_openapi_generate_only_minimal.json
-!docs/action_openapi_current.json
-!docs/action_openapi_render.json
-!docs/6月2日デプロイ方針_20260527.md
-!docs/6月3日Action接続手順_20260527.md
-!docs/Renderデプロイ手順_20260528.md
+!docs/README.md
+!docs/api/
+docs/api/*
+!docs/api/action_openapi_generate_only_minimal.json
+!docs/api/action_openapi_current.json
+!docs/api/action_openapi_render.json
+!docs/deploy/
+docs/deploy/*
+!docs/deploy/公開デプロイ手順.md
+!docs/gpt-action/
+docs/gpt-action/*
+!docs/gpt-action/Custom_GPT_Action接続手順.md
+!docs/gpt-action/custom_gpt_instructions.md
 
 # Local backups / scratch copies
 image_api copy.py
