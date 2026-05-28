@@ -9,6 +9,8 @@ import numpy as np
 import os
 
 # ---- フォント ----
+JP_INDEX = 0
+
 def first_existing(*paths):
     for path in paths:
         if path and os.path.exists(path):
@@ -28,13 +30,15 @@ SERIF_MED = first_existing(
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 )
 SERIF_REG = SERIF_MED
+SERIF_BLACK_INDEX = 3 if "ヒラギノ明朝 ProN.ttc" in SERIF_BLACK else JP_INDEX
+SERIF_MED_INDEX = 0
+SERIF_REG_INDEX = 0
 SANS_REG = first_existing(
     "/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 )
-JP_INDEX = 0
 SLIDE_ASPECT = 16 / 9
 
 # スーパーサンプリング倍率（ジャギ対策：高解像度で描画して最後に縮小）
@@ -72,6 +76,18 @@ def _save_canvas(img, output_path, W_out, H_out, quality=95):
 
 def font(path, size, index=JP_INDEX):
     return ImageFont.truetype(path, size, index=index)
+
+def serif_black(size):
+    return font(SERIF_BLACK, size, index=SERIF_BLACK_INDEX)
+
+def serif_med(size):
+    return font(SERIF_MED, size, index=SERIF_MED_INDEX)
+
+def serif_reg(size):
+    return font(SERIF_REG, size, index=SERIF_REG_INDEX)
+
+def sans_reg(size):
+    return font(SANS_REG, size)
 
 # ---- 配色 ----
 INK_DARK  = (58, 36, 23)
@@ -122,11 +138,48 @@ def wrap_text(draw, txt, fnt, max_w):
         lines.append(cur)
     return lines
 
+def rebalance_short_last_line(draw, lines, fnt, max_w, min_last_chars=2):
+    """1文字だけ段落ちする日本語見出しを避けるため、前行から文字を借りる。"""
+    lines = [ln for ln in lines if ln]
+    if len(lines) < 2:
+        return lines
+    while (
+        len(lines[-1]) < min_last_chars
+        and len(lines[-2]) > min_last_chars
+    ):
+        moved = lines[-2][-1] + lines[-1]
+        prev = lines[-2][:-1]
+        if text_size(draw, moved, fnt)[0] > max_w or not prev:
+            break
+        lines[-2], lines[-1] = prev, moved
+    return lines
+
+def fit_wrapped_lines(draw, txt, font_factory, start_size, max_w, min_size=None,
+                      max_lines=None, min_last_chars=2):
+    """幅・行数・短すぎる最終行を見ながら、フォントサイズを少し落として整える。"""
+    min_size = min_size or int(start_size * 0.82)
+    best_lines, best_font, best_size = None, None, start_size
+    for size in range(start_size, min_size - 1, -2):
+        fnt = font_factory(size)
+        lines = rebalance_short_last_line(draw, wrap_text(draw, txt, fnt, max_w),
+                                          fnt, max_w, min_last_chars)
+        best_lines, best_font, best_size = lines, fnt, size
+        if max_lines and len(lines) > max_lines:
+            continue
+        if len(lines) > 1 and len(lines[-1]) < min_last_chars:
+            continue
+        return lines, fnt, size
+    return best_lines, best_font, best_size
+
 def draw_centered_lines(draw, lines, fnt, fill, cx, y, line_h):
     for ln in lines:
         draw_centered(draw, ln, fnt, fill, cx, y)
         y += line_h
     return y
+
+def draw_wrapped_centered(draw, txt, fnt, fill, cx, y, max_w, line_h):
+    lines = rebalance_short_last_line(draw, wrap_text(draw, txt, fnt, max_w), fnt, max_w)
+    return draw_centered_lines(draw, lines, fnt, fill, cx, y, line_h)
 
 def apply_text_scrim(img, y_top, y_bottom, max_alpha=135, feather=140):
     """テキスト帯の背後を暗くして可読性を確保（写真上テキスト用）"""
@@ -188,11 +241,40 @@ def paste_image_contain(base, image_path, box, fill=(252, 249, 242)):
     card.paste(photo, ((bw - nw) // 2, (bh - nh) // 2))
     base.paste(card, (x1, y1))
 
+def paste_image_card(base, image_path, box, mode="contain", fill=(252, 249, 242)):
+    """薄い台紙つきで画像を置く。資料画像はcontain、写真はcover/containを選べる。"""
+    x1, y1, x2, y2 = [int(v) for v in box]
+    bw, bh = x2 - x1, y2 - y1
+    sp = SUPERSAMPLE
+    shadow = Image.new("RGBA", (bw + 28*sp, bh + 28*sp), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    sd.rectangle([10*sp, 10*sp, 10*sp + bw, 10*sp + bh], fill=(48, 30, 18, 34))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(7*sp))
+    base.paste(shadow, (x1 - 9*sp, y1 - 4*sp), shadow)
+
+    card = Image.new("RGB", (bw, bh), fill)
+    photo = Image.open(image_path).convert("RGB")
+    if mode == "cover":
+        scale = max(bw / photo.width, bh / photo.height)
+        nw, nh = int(photo.width * scale), int(photo.height * scale)
+        photo = photo.resize((nw, nh), Image.LANCZOS)
+        left, top = (nw - bw) // 2, (nh - bh) // 2
+        photo = photo.crop((left, top, left + bw, top + bh))
+        card.paste(photo, (0, 0))
+    else:
+        pad = int(min(bw, bh) * 0.035)
+        inner_w, inner_h = bw - pad*2, bh - pad*2
+        scale = min(inner_w / photo.width, inner_h / photo.height)
+        nw, nh = int(photo.width * scale), int(photo.height * scale)
+        photo = photo.resize((nw, nh), Image.LANCZOS)
+        card.paste(photo, ((bw - nw) // 2, (bh - nh) // 2))
+    base.paste(card, (x1, y1))
+
 def make_placeholder(w, h, label, color=(170, 150, 132)):
     """テスト用の写真プレースホルダー"""
     ph = Image.new("RGB", (w, h), color)
     d = ImageDraw.Draw(ph)
-    f = font(SANS_REG, int(min(w,h)*0.10))
+    f = sans_reg(int(min(w,h)*0.10))
     tw, th = text_size(d, label, f)
     d.text(((w-tw)/2, (h-th)/2-th*0.3), label, font=f, fill=(240,235,228))
     return ph
@@ -229,10 +311,10 @@ def render_cover(bg_path, output_path, content, safe_zone=(0.20,0.16,0.80,0.84))
     cx = detect_light_card_center_x(img, fallback_cx)
     title_sz, eyebrow_sz = int(W*0.058), int(W*0.022)
     subtitle_sz, presenter_sz = int(W*0.021), int(W*0.016)
-    f_title = font(SERIF_BLACK, title_sz)
-    f_eye   = font(SERIF_REG, eyebrow_sz)
-    f_sub   = font(SERIF_MED, subtitle_sz)
-    f_pre   = font(SANS_REG, presenter_sz)
+    f_title = serif_black(title_sz)
+    f_eye   = serif_reg(eyebrow_sz)
+    f_sub   = serif_med(subtitle_sz)
+    f_pre   = sans_reg(presenter_sz)
     gap_s, gap_m = int(H*0.028), int(H*0.040)
     line_h = int(title_sz*1.18)
     tlines = content['title']
@@ -259,9 +341,9 @@ def render_list(bg_path, output_path, content, safe_zone=(0.20,0.16,0.80,0.84)):
     sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
     cx = W*(safe_zone[0]+safe_zone[2])/2
     heading_sz, eyebrow_sz, item_sz = int(W*0.040), int(W*0.018), int(W*0.024)
-    f_head = font(SERIF_BLACK, heading_sz)
-    f_eye  = font(SERIF_REG, eyebrow_sz)
-    f_item = font(SERIF_MED, item_sz)
+    f_head = serif_black(heading_sz)
+    f_eye  = serif_reg(eyebrow_sz)
+    f_item = serif_med(item_sz)
     gap_s, gap_m = int(H*0.022), int(H*0.055)
     item_h = int(item_sz*1.95)
     items = content['items']
@@ -292,8 +374,8 @@ def render_statement(bg_path, output_path, content, safe_zone=(0.20,0.16,0.80,0.
     sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
     cx = W*(safe_zone[0]+safe_zone[2])/2
     msg_sz, eyebrow_sz = int(W*0.036), int(W*0.019)
-    f_msg = font(SERIF_MED, msg_sz)
-    f_eye = font(SERIF_REG, eyebrow_sz)
+    f_msg = serif_black(msg_sz)
+    f_eye = serif_reg(eyebrow_sz)
     gap_m, line_h = int(H*0.050), int(msg_sz*1.55)
     lines = content['lines']
     has_eye = bool(content.get('eyebrow'))
@@ -313,8 +395,8 @@ def render_message_over_image(bg_path, output_path, content, safe_zone=(0.10,0.1
     img, W_out, H_out = _prepare_canvas(bg_path)
     W, H = img.size
     msg_sz, eyebrow_sz = int(W*0.044), int(W*0.020)
-    f_msg = font(SERIF_MED, msg_sz)
-    f_eye = font(SERIF_REG, eyebrow_sz)
+    f_msg = serif_med(msg_sz)
+    f_eye = serif_reg(eyebrow_sz)
     gap_m, line_h = int(H*0.045), int(msg_sz*1.50)
     lines = content['lines']
     has_eye = bool(content.get('eyebrow'))
@@ -345,8 +427,8 @@ def render_multi_image(bg_path, output_path, content, safe_zone=(0.12,0.15,0.88,
     sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
     cx = (sz_l+sz_r)/2
     heading_sz, caption_sz = int(W*0.036), int(W*0.019)
-    f_head = font(SERIF_BLACK, heading_sz)
-    f_cap  = font(SERIF_MED, caption_sz)
+    f_head = serif_black(heading_sz)
+    f_cap  = serif_med(caption_sz)
     items = content['items']
     n = len(items)
     gap_head, gap_cap = int(H*0.045), int(H*0.045)
@@ -381,7 +463,7 @@ def render_multi_image(bg_path, output_path, content, safe_zone=(0.12,0.15,0.88,
     print(f"[E 複数画像]  {output_path}")
 
 # ===== 型J：コンテンツ配置 =====
-def render_content(bg_path, output_path, content, safe_zone=(0.12,0.14,0.88,0.84)):
+def render_content(bg_path, output_path, content, safe_zone=(0.12,0.13,0.88,0.84)):
     img, W_out, H_out = _prepare_canvas(bg_path)
     W, H = img.size
     draw = ImageDraw.Draw(img)
@@ -398,46 +480,54 @@ def render_content(bg_path, output_path, content, safe_zone=(0.12,0.14,0.88,0.84
     if not items:
         raise ValueError("content.items が必要です")
 
-    title_sz, sub_sz, caption_sz = int(W*0.036), int(W*0.020), int(W*0.016)
-    f_title = font(SERIF_BLACK, title_sz)
-    f_sub = font(SERIF_MED, sub_sz)
-    f_cap = font(SERIF_MED, caption_sz)
+    title_sz, sub_sz, caption_sz = int(W*0.034), int(W*0.019), int(W*0.016)
+    f_title = serif_black(title_sz)
+    f_sub = serif_med(sub_sz)
+    f_cap = serif_med(caption_sz)
 
     y = sz_t
     if title:
-        draw_centered(draw, title, f_title, INK_DARK, cx, y)
-        y += title_sz + int(H*0.020)
+        y = draw_wrapped_centered(draw, title, f_title, INK_DARK, cx, y,
+                                  (sz_r - sz_l) * 0.86, int(title_sz * 1.25))
+        y += int(H*0.016)
     if subtitle:
-        draw_centered(draw, subtitle, f_sub, INK_MID, cx, y)
-        y += sub_sz + int(H*0.045)
+        y = draw_wrapped_centered(draw, subtitle, f_sub, INK_MID, cx, y,
+                                  (sz_r - sz_l) * 0.78, int(sub_sz * 1.35))
+        y += int(H*0.040)
     elif title:
-        y += int(H*0.030)
+        y += int(H*0.026)
 
     if not title and not subtitle:
         y = sz_t
 
-    gap = int(W * (0.030 if columns >= 3 else 0.050))
+    gap = int(W * (0.026 if columns >= 3 else 0.050))
     caption_h = caption_sz + int(H*0.020) if any(it.get("caption") for it in items) else 0
     area_h = sz_b - y - caption_h
     area_w = sz_r - sz_l
 
     if columns == 1:
-        box = (sz_l, y, sz_r, y + area_h)
-        paste_image_contain(img, items[0]["image"], box)
+        max_w = area_w * 0.86
+        box_h = area_h
+        box_w = max_w
+        box = (cx - box_w/2, y, cx + box_w/2, y + box_h)
+        paste_image_card(img, items[0]["image"], box, mode="contain")
         if items[0].get("caption"):
             draw_centered(draw, items[0]["caption"], f_cap, INK_MID, cx, y + area_h + int(H*0.018))
     else:
         col_w = (area_w - gap*(columns-1)) / columns
+        photo_h = min(area_h, col_w * (1.32 if columns >= 3 else 1.18))
+        photo_y = y + (area_h - photo_h) / 2
         for i in range(columns):
             if i >= len(items):
                 break
             x1 = sz_l + i * (col_w + gap)
             x2 = x1 + col_w
-            box = (x1, y, x2, y + area_h)
-            paste_photo_cover(img, items[i]["image"], box)
+            box = (x1, photo_y, x2, photo_y + photo_h)
+            mode = items[i].get("fit") or ("contain" if columns >= 3 else "cover")
+            paste_image_card(img, items[i]["image"], box, mode=mode)
             if items[i].get("caption"):
                 draw_centered(draw, items[i]["caption"], f_cap, INK_MID,
-                              (x1+x2)/2, y + area_h + int(H*0.018))
+                              (x1+x2)/2, photo_y + photo_h + int(H*0.018))
 
     _save_canvas(img, output_path, W_out, H_out)
     print(f"[J Content]   {output_path}")
@@ -453,10 +543,10 @@ def render_before_after(bg_path, output_path, content, safe_zone=(0.10,0.15,0.90
 
     heading_sz, eyebrow_sz = int(W*0.036), int(W*0.018)
     label_sz, caption_sz = int(W*0.017), int(W*0.018)
-    f_head = font(SERIF_BLACK, heading_sz)
-    f_eye = font(SERIF_REG, eyebrow_sz)
-    f_label = font(SANS_REG, label_sz)
-    f_caption = font(SERIF_MED, caption_sz)
+    f_head = serif_black(heading_sz)
+    f_eye = serif_reg(eyebrow_sz)
+    f_label = sans_reg(label_sz)
+    f_caption = serif_med(caption_sz)
 
     pairs = content.get("pairs", [])
     if not pairs:
@@ -534,10 +624,10 @@ def render_three_column(bg_path, output_path, content, safe_zone=(0.17,0.16,0.83
 
     heading_sz, eyebrow_sz = int(W*0.036), int(W*0.018)
     col_title_sz, body_sz = int(W*0.022), int(W*0.016)
-    f_head = font(SERIF_BLACK, heading_sz)
-    f_eye = font(SERIF_REG, eyebrow_sz)
-    f_col = font(SERIF_BLACK, col_title_sz)
-    f_body = font(SERIF_MED, body_sz)
+    f_head = serif_black(heading_sz)
+    f_eye = serif_reg(eyebrow_sz)
+    f_col = serif_black(col_title_sz)
+    f_body = serif_med(body_sz)
 
     columns = content.get("columns", [])
     if len(columns) != 3:
@@ -587,7 +677,7 @@ def render_three_column(bg_path, output_path, content, safe_zone=(0.17,0.16,0.83
     print(f"[I 3カラム]   {output_path}")
 
 # ===== 型L：プロセス =====
-def render_process(bg_path, output_path, content, safe_zone=(0.13,0.15,0.87,0.84)):
+def render_process(bg_path, output_path, content, safe_zone=(0.13,0.17,0.87,0.84)):
     img, W_out, H_out = _prepare_canvas(bg_path)
     W, H = img.size
     draw = ImageDraw.Draw(img)
@@ -595,30 +685,67 @@ def render_process(bg_path, output_path, content, safe_zone=(0.13,0.15,0.87,0.84
     sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
     cx = (sz_l + sz_r) / 2
 
-    eyebrow_sz, title_sz = int(W*0.018), int(W*0.038)
-    label_sz, step_title_sz, body_sz = int(W*0.019), int(W*0.027), int(W*0.017)
-    f_eye = font(SERIF_REG, eyebrow_sz)
-    f_title = font(SERIF_BLACK, title_sz)
-    f_label = font(SANS_REG, label_sz)
-    f_step_title = font(SERIF_BLACK, step_title_sz)
-    f_body = font(SERIF_MED, body_sz)
-
-    y = sz_t
-    if content.get("eyebrow"):
-        draw_tracked(draw, (0, y), content["eyebrow"], f_eye, INK_MID,
-                     tracking=int(eyebrow_sz*0.22), center_x=cx)
-        y += eyebrow_sz + int(H*0.026)
-    draw_centered(draw, content.get("title") or content.get("heading", ""), f_title, INK_DARK, cx, y)
-    y += title_sz + int(H*0.065)
+    eyebrow_sz, title_sz = int(W*0.017), int(W*0.033)
+    label_sz, step_title_sz, body_sz = int(W*0.017), int(W*0.024), int(W*0.016)
+    f_eye = serif_reg(eyebrow_sz)
+    f_title = serif_black(title_sz)
+    f_label = sans_reg(label_sz)
+    f_step_title = serif_black(step_title_sz)
+    f_body = serif_med(body_sz)
 
     steps = content.get("steps", [])
     if not steps:
         raise ValueError("process.steps が必要です")
 
     columns = min(int(content.get("columns") or len(steps)), len(steps))
+
+    if columns == 1:
+        step = steps[0]
+        label = step.get("label", "STEP 1")
+        title = step.get("title", "")
+        body = step.get("body") or []
+        if isinstance(body, str):
+            body = [body]
+
+        label_f = sans_reg(int(W*0.018))
+        hero_title_f = serif_black(int(W*0.045))
+        body_f = serif_med(int(W*0.022))
+        label_h = int(W*0.018)
+        hero_title_h = int(W*0.045)
+        body_line_h = int(W*0.022*1.55)
+        body_lines = []
+        for line in body:
+            body_lines.extend(wrap_text(draw, line, body_f, (sz_r - sz_l) * 0.58))
+        block_h = label_h + int(H*0.030) + hero_title_h + int(H*0.052) + len(body_lines)*body_line_h
+        ty = sz_t + ((sz_b - sz_t) - block_h) * 0.50
+
+        draw_tracked(draw, (0, ty), label, label_f, INK_MID,
+                     tracking=int(label_h*0.18), center_x=cx)
+        ty += label_h + int(H*0.030)
+        title_lines = wrap_text(draw, title, hero_title_f, (sz_r - sz_l) * 0.72)
+        ty = draw_centered_lines(draw, title_lines, hero_title_f, INK_DARK,
+                                 cx, ty, int(hero_title_h * 1.22))
+        ty += int(H*0.052)
+        draw_centered_lines(draw, body_lines, body_f, INK_MID, cx, ty, body_line_h)
+
+        _save_canvas(img, output_path, W_out, H_out)
+        print(f"[L Process]   {output_path}")
+        return
+
+    y = sz_t
+    if content.get("eyebrow"):
+        draw_tracked(draw, (0, y), content["eyebrow"], f_eye, INK_MID,
+                     tracking=int(eyebrow_sz*0.22), center_x=cx)
+        y += eyebrow_sz + int(H*0.020)
+    y = draw_wrapped_centered(draw, content.get("title") or content.get("heading", ""),
+                              f_title, INK_DARK, cx, y, (sz_r - sz_l) * 0.88,
+                              int(title_sz * 1.25))
+    y += int(H*0.060)
+
     gap = int(W * 0.035)
     card_w = ((sz_r - sz_l) - gap*(columns-1)) / columns
-    card_h = sz_b - y
+    card_h = min(sz_b - y, H * 0.43)
+    y += max(0, (sz_b - y - card_h) * 0.18)
     body_line_h = int(body_sz * 1.55)
 
     for i, step in enumerate(steps[:columns]):
@@ -639,12 +766,14 @@ def render_process(bg_path, output_path, content, safe_zone=(0.13,0.15,0.87,0.84
         img.paste(shadow, (int(x1 - 8*SUPERSAMPLE), int(y - 2*SUPERSAMPLE)), shadow)
         img.paste(card, (int(x1), int(y)), card)
 
-        ty = y + int(H*0.052)
+        ty = y + int(H*0.048)
         draw_tracked(draw, (0, ty), label, f_label, INK_MID,
                      tracking=int(label_sz*0.10), center_x=card_cx)
-        ty += label_sz + int(H*0.035)
-        draw_centered(draw, title, f_step_title, INK_DARK, card_cx, ty)
-        ty += step_title_sz + int(H*0.046)
+        ty += label_sz + int(H*0.030)
+        title_lines = wrap_text(draw, title, f_step_title, card_w * 0.78)
+        ty = draw_centered_lines(draw, title_lines, f_step_title, INK_DARK,
+                                 card_cx, ty, int(step_title_sz * 1.30))
+        ty += int(H*0.036)
 
         body_lines = []
         for line in body:
@@ -653,6 +782,93 @@ def render_process(bg_path, output_path, content, safe_zone=(0.13,0.15,0.87,0.84
 
     _save_canvas(img, output_path, W_out, H_out)
     print(f"[L Process]   {output_path}")
+
+# ===== 型M：選択肢 =====
+def render_choice(bg_path, output_path, content, safe_zone=(0.12,0.16,0.88,0.84)):
+    img, W_out, H_out = _prepare_canvas(bg_path)
+    W, H = img.size
+    draw = ImageDraw.Draw(img)
+    sz_l, sz_r = W*safe_zone[0], W*safe_zone[2]
+    sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
+    cx = (sz_l + sz_r) / 2
+
+    eyebrow_sz, title_sz = int(W*0.016), int(W*0.034)
+    label_sz, item_title_sz, caption_sz = int(W*0.014), int(W*0.024), int(W*0.014)
+    f_eye = serif_reg(eyebrow_sz)
+    f_title = serif_black(title_sz)
+    f_label = sans_reg(label_sz)
+    f_item_title = serif_black(item_title_sz)
+    f_caption = serif_med(caption_sz)
+
+    y = sz_t
+    if content.get("eyebrow"):
+        draw_tracked(draw, (0, y), content["eyebrow"], f_eye, INK_MID,
+                     tracking=int(eyebrow_sz*0.24), center_x=cx)
+        y += eyebrow_sz + int(H*0.020)
+    title_text = content.get("title") or content.get("heading", "")
+    title_lines, f_title, title_sz = fit_wrapped_lines(
+        draw, title_text, serif_black, title_sz, (sz_r - sz_l) * 0.82,
+        min_size=int(title_sz*0.86), max_lines=2, min_last_chars=3
+    )
+    y = draw_centered_lines(draw, title_lines, f_title, INK_DARK, cx, y,
+                            int(title_sz * 1.24))
+    y += int(H*0.080)
+
+    choices = content.get("choices") or content.get("items") or []
+    if not choices:
+        raise ValueError("choice.choices が必要です")
+    columns = min(int(content.get("columns") or len(choices)), len(choices), 4)
+    gap = int(W * 0.040)
+    col_w = ((sz_r - sz_l) - gap*(columns-1)) / columns
+    col_h = sz_b - y
+    sep_color = (198, 174, 145)
+    any_image = any(item.get("image") for item in choices[:columns] if isinstance(item, dict))
+
+    for i, item in enumerate(choices[:columns]):
+        x1 = sz_l + i * (col_w + gap)
+        x2 = x1 + col_w
+        col_cx = (x1 + x2) / 2
+        if i > 0:
+            sx = x1 - gap / 2
+            draw.line((sx, y + col_h*0.08, sx, y + col_h*0.72), fill=sep_color, width=max(1, int(2*SUPERSAMPLE)))
+
+        label = item.get("label", f"CHOICE {i+1}")
+        title = item.get("title", "")
+        caption = item.get("caption") or item.get("body") or []
+        if isinstance(caption, str):
+            caption = [caption]
+
+        ty = y + (col_h * 0.03 if any_image else col_h * 0.08)
+        draw_tracked(draw, (0, ty), label, f_label, INK_MID,
+                     tracking=int(label_sz*0.10), center_x=col_cx)
+        ty += label_sz + int(H*0.034)
+        title_lines, fitted_title_font, fitted_title_sz = fit_wrapped_lines(
+            draw, title, serif_black, item_title_sz, col_w * 0.88,
+            min_size=int(item_title_sz*0.76), max_lines=2, min_last_chars=2
+        )
+        ty = draw_centered_lines(draw, title_lines, fitted_title_font, INK_DARK,
+                                 col_cx, ty, int(fitted_title_sz * 1.28))
+        ty += int(H*0.034)
+
+        if item.get("image"):
+            img_h = min(col_h * 0.32, col_w * 0.66)
+            img_w = min(col_w * 0.74, img_h * 1.22)
+            paste_image_card(img, item["image"],
+                             (col_cx - img_w/2, ty, col_cx + img_w/2, ty + img_h),
+                             mode=item.get("fit", "contain"))
+            ty += img_h + int(H*0.030)
+
+        caption_lines = []
+        for line in caption:
+            caption_lines.extend(
+                rebalance_short_last_line(draw, wrap_text(draw, line, f_caption, col_w * 0.82),
+                                          f_caption, col_w * 0.82, min_last_chars=2)
+            )
+        draw_centered_lines(draw, caption_lines, f_caption, INK_MID,
+                            col_cx, ty, int(caption_sz * 1.55))
+
+    _save_canvas(img, output_path, W_out, H_out)
+    print(f"[M Choice]    {output_path}")
 
 # ===== 型F：人物写真＋テキスト =====
 def render_person_text(bg_path, output_path, content, safe_zone=(0.12,0.16,0.88,0.84)):
@@ -667,9 +883,11 @@ def render_person_text(bg_path, output_path, content, safe_zone=(0.12,0.16,0.88,
     photo_w = int(min(W*0.30, max_photo_h / photo_ratio))
     draw = ImageDraw.Draw(img)
     msg_sz, eyebrow_sz = int(W*0.034), int(W*0.019)
-    f_msg = font(SERIF_MED, msg_sz)
-    f_eye = font(SERIF_REG, eyebrow_sz)
+    f_msg = serif_black(msg_sz)
+    f_eye = serif_reg(eyebrow_sz)
     lines = content['lines']
+    text_fill = LIGHT if content.get("reverse") else INK_DARK
+    eye_fill = (236, 226, 205) if content.get("reverse") else INK_MID
     text_w = max(
         [text_size(draw, ln, f_msg)[0] for ln in lines] +
         ([text_size(draw, content['eyebrow'], f_eye, tracking=int(eyebrow_sz*0.20))[0]]
@@ -691,11 +909,11 @@ def render_person_text(bg_path, output_path, content, safe_zone=(0.12,0.16,0.88,
     block_h = (eyebrow_sz+gap_m if has_eye else 0)+line_h*len(lines)
     y = (sz_t+sz_b)/2 - block_h/2
     if has_eye:
-        draw_tracked(draw,(0,y),content['eyebrow'],f_eye,INK_MID,
+        draw_tracked(draw,(0,y),content['eyebrow'],f_eye,eye_fill,
                      tracking=int(eyebrow_sz*0.20),center_x=text_cx)
         y += eyebrow_sz+gap_m
     for ln in lines:
-        draw_centered(draw,ln,f_msg,INK_DARK,text_cx,y); y += line_h
+        draw_centered(draw,ln,f_msg,text_fill,text_cx,y); y += line_h
     _save_canvas(img, output_path, W_out, H_out)
     print(f"[F 人物＋文]  {output_path}")
 
@@ -707,10 +925,12 @@ def render_cta(bg_path, output_path, content, safe_zone=(0.20,0.14,0.80,0.86)):
     draw = ImageDraw.Draw(img)
     sz_t, sz_b = H*safe_zone[1], H*safe_zone[3]
     cx = W*(safe_zone[0]+safe_zone[2])/2
-    heading_sz, sub_sz = int(W*0.044), int(W*0.022)
-    f_head = font(SERIF_BLACK, heading_sz)
-    f_sub  = font(SERIF_MED, sub_sz)
+    heading_sz, sub_sz = int(W*0.041), int(W*0.021)
+    f_head = serif_black(heading_sz)
+    f_sub  = serif_med(sub_sz)
     has_sub = bool(content.get('subtext'))
+    text_fill = LIGHT if content.get("reverse") else INK_DARK
+    sub_fill = (236, 226, 205) if content.get("reverse") else INK_MID
     qr = qrcode.QRCode(box_size=10*SUPERSAMPLE, border=2)
     qr.add_data(content['qr_data'])
     qr.make()
@@ -721,13 +941,14 @@ def render_cta(bg_path, output_path, content, safe_zone=(0.20,0.14,0.80,0.86)):
     card = Image.new("RGB",(qr_size+pad*2, qr_size+pad*2),(252,249,242))
     card.paste(qr_img,(pad,pad))
     gap_s, gap_l = int(H*0.030), int(H*0.055)
-    block_h = heading_sz + (gap_s+sub_sz if has_sub else 0) + gap_l + card.height
+    heading_lines = wrap_text(draw, content['heading'], f_head, (W*(safe_zone[2]-safe_zone[0])) * 0.86)
+    heading_h = len(heading_lines) * int(heading_sz * 1.22)
+    block_h = heading_h + (gap_s+sub_sz if has_sub else 0) + gap_l + card.height
     y = sz_t + ((sz_b-sz_t)-block_h)/2
-    draw_centered(draw,content['heading'],f_head,INK_DARK,cx,y)
-    y += heading_sz
+    y = draw_centered_lines(draw, heading_lines, f_head, text_fill, cx, y, int(heading_sz * 1.22))
     if has_sub:
         y += gap_s
-        draw_centered(draw,content['subtext'],f_sub,INK_MID,cx,y)
+        draw_centered(draw,content['subtext'],f_sub,sub_fill,cx,y)
         y += sub_sz
     y += gap_l
     sp = SUPERSAMPLE
@@ -750,13 +971,13 @@ def render_offer(bg_path, output_path, content, safe_zone=(0.14,0.14,0.86,0.86))
     cx = (sz_l + sz_r) / 2
 
     label_sz, title_sz, name_sz, price_sz, body_sz = (
-        int(W*0.018), int(W*0.043), int(W*0.026), int(W*0.034), int(W*0.019)
+        int(W*0.018), int(W*0.040), int(W*0.025), int(W*0.034), int(W*0.020)
     )
-    f_label = font(SANS_REG, label_sz)
-    f_title = font(SERIF_BLACK, title_sz)
-    f_name = font(SERIF_MED, name_sz)
-    f_price = font(SERIF_BLACK, price_sz)
-    f_body = font(SERIF_MED, body_sz)
+    f_label = sans_reg(label_sz)
+    f_title = serif_black(title_sz)
+    f_name = serif_med(name_sz)
+    f_price = serif_black(price_sz)
+    f_body = serif_med(body_sz)
 
     label = content.get("label")
     title = content.get("title", "")
@@ -775,34 +996,40 @@ def render_offer(bg_path, output_path, content, safe_zone=(0.14,0.14,0.86,0.86))
     if price:
         block_lines.append(("price", price))
 
-    line_gap = int(H * 0.030)
-    body_line_h = int(body_sz * 1.75)
+    line_gap = int(H * 0.025)
+    body_line_h = int(body_sz * 1.58)
     block_h = 0
+    max_text_w = (sz_r - sz_l) * 0.78
     for kind, _ in block_lines:
-        block_h += {"label": label_sz, "title": title_sz, "name": name_sz, "price": price_sz}[kind]
+        size = {"label": label_sz, "title": title_sz, "name": name_sz, "price": price_sz}[kind]
+        block_h += size
         block_h += line_gap
-    block_h += len(body) * body_line_h
+    body_lines = []
+    for line in body:
+        body_lines.extend(wrap_text(draw, line, f_body, max_text_w))
+    block_h += len(body_lines) * body_line_h
 
-    y = sz_t + ((sz_b - sz_t) - block_h) * 0.46
+    y = sz_t + ((sz_b - sz_t) - block_h) * 0.44
     for kind, text in block_lines:
         if kind == "label":
             draw_tracked(draw, (0, y), text, f_label, INK_MID,
                          tracking=int(label_sz*0.12), center_x=cx)
             y += label_sz + line_gap
         elif kind == "title":
-            draw_centered(draw, text, f_title, INK_DARK, cx, y)
-            y += title_sz + line_gap
+            y = draw_wrapped_centered(draw, text, f_title, INK_DARK, cx, y,
+                                      max_text_w, int(title_sz * 1.20))
+            y += line_gap
         elif kind == "name":
-            draw_centered(draw, text, f_name, INK_MID, cx, y)
-            y += name_sz + line_gap
+            y = draw_wrapped_centered(draw, text, f_name, INK_MID, cx, y,
+                                      max_text_w, int(name_sz * 1.25))
+            y += line_gap
         elif kind == "price":
             draw_centered(draw, text, f_price, INK_DARK, cx, y)
             y += price_sz + line_gap
 
-    for line in body:
-        for wrapped in wrap_text(draw, line, f_body, (sz_r - sz_l) * 0.78):
-            draw_centered(draw, wrapped, f_body, INK_MID, cx, y)
-            y += body_line_h
+    for wrapped in body_lines:
+        draw_centered(draw, wrapped, f_body, INK_MID, cx, y)
+        y += body_line_h
 
     _save_canvas(img, output_path, W_out, H_out)
     print(f"[K Offer]     {output_path}")

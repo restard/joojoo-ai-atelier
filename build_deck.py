@@ -17,7 +17,7 @@ from slide_render import (
     render_cover, render_list, render_statement, render_message_over_image,
     render_multi_image, render_before_after, render_three_column,
     render_person_text, render_cta, render_content, render_offer,
-    render_process,
+    render_process, render_choice,
 )
 from pptx import Presentation
 from pptx.util import Inches
@@ -39,6 +39,7 @@ RENDERERS = {
     "three_column": render_three_column,
     "content":     render_content,
     "process":     render_process,
+    "choice":      render_choice,
     "offer":       render_offer,
     "person":      render_person_text,
     "cta":         render_cta,
@@ -49,7 +50,32 @@ BACKGROUND_ALIASES = {
     "three_column": "statement",
     "content": "multi_image",
     "process": "statement",
+    "choice": "statement",
     "offer": "cta",
+}
+
+BACKGROUND_STYLES = {
+    "open_center",
+    "paper_stage",
+    "postcard_cta",
+    "photo_frame",
+    "dark_reverse",
+}
+
+DEFAULT_BACKGROUND_STYLE = {
+    "cover": "paper_stage",
+    "list": "paper_stage",
+    "statement": "paper_stage",
+    "message": "paper_stage",
+    "process": "open_center",
+    "choice": "open_center",
+    "content": "open_center",
+    "offer": "open_center",
+    "cta": "postcard_cta",
+    "multi_image": "photo_frame",
+    "before_after": "photo_frame",
+    "three_column": "open_center",
+    "person": "photo_frame",
 }
 
 # message スライド用の一時背景（assets 内の webp）
@@ -60,9 +86,9 @@ MESSAGE_FALLBACKS = [
 
 
 class BackgroundPool:
-    """色×型ごとの背景プール。連続重複を避けて1枚ずつ選択する。"""
+    """背景プール。新style指定と旧色×型指定の両方を扱う。"""
     def __init__(self, pool_dir):
-        self.pool, self.idx = {}, {}
+        self.pool, self.style_pool, self.idx = {}, {}, {}
         self.pool_dir = pool_dir
         known_types = sorted(
             set(RENDERERS) | set(BACKGROUND_ALIASES.values()),
@@ -72,6 +98,9 @@ class BackgroundPool:
         for color in os.listdir(pool_dir):
             color_path = os.path.join(pool_dir, color)
             if not os.path.isdir(color_path):
+                continue
+            if color in BACKGROUND_STYLES:
+                self._load_style_dir(color, color_path)
                 continue
             for f in sorted(os.listdir(color_path)):
                 if not f.lower().endswith((".png", ".jpg", ".jpeg")):
@@ -88,6 +117,28 @@ class BackgroundPool:
             for slide_type, imgs in by_type.items():
                 imgs.sort()
                 self.idx[(color, slide_type)] = 0
+        for style, by_color in self.style_pool.items():
+            for color, by_tone in by_color.items():
+                for tone, imgs in by_tone.items():
+                    imgs.sort()
+                    self.idx[(style, color, tone)] = 0
+
+    def _load_style_dir(self, style, style_path):
+        for f in sorted(os.listdir(style_path)):
+            if not f.lower().endswith((".png", ".jpg", ".jpeg")):
+                continue
+            stem = os.path.splitext(f)[0]
+            tone = None
+            for suffix in ("_normal", "_reverse"):
+                if stem.endswith(suffix):
+                    color = stem[:-len(suffix)]
+                    tone = suffix[1:]
+                    break
+            if not tone or not color:
+                continue
+            self.style_pool.setdefault(style, {}).setdefault(color, {}).setdefault(tone, []).append(
+                os.path.join(style_path, f)
+            )
 
     def has(self, slide_type, color):
         return (
@@ -108,11 +159,66 @@ class BackgroundPool:
         self.idx[key] += 1
         return img
 
+    def has_style(self, style, color, tone="normal"):
+        return (
+            style in self.style_pool
+            and (
+                (color in self.style_pool[style] and tone in self.style_pool[style][color])
+                or ("default" in self.style_pool[style] and tone in self.style_pool[style]["default"])
+            )
+        )
+
+    def pick_style(self, style, color, tone="normal"):
+        if not self.has_style(style, color, tone):
+            raise ValueError(
+                f"背景プールにstyle '{style}'・色 '{color}'・tone '{tone}' がありません"
+                f"（{self.pool_dir}/{style}/{color}_{tone}.png を確認）"
+            )
+        actual_color = (
+            color
+            if color in self.style_pool[style] and tone in self.style_pool[style][color]
+            else "default"
+        )
+        imgs = self.style_pool[style][actual_color][tone]
+        key = (style, actual_color, tone)
+        img = imgs[self.idx[key] % len(imgs)]
+        self.idx[key] += 1
+        return img
+
 
 def resolve_bg_type(stype, pool, color):
     if pool.has(stype, color):
         return stype
     return BACKGROUND_ALIASES.get(stype, stype)
+
+def resolve_background(slide, stype, pool, default_color):
+    bg_spec = slide.get("background")
+    slide_color = slide.get("color", default_color)
+
+    if isinstance(bg_spec, str):
+        return bg_spec, slide_color, bg_spec
+
+    if isinstance(bg_spec, dict):
+        style = bg_spec.get("style") or DEFAULT_BACKGROUND_STYLE.get(stype)
+        bg_color = bg_spec.get("color") or slide_color
+        tone = bg_spec.get("tone") or "normal"
+        if style and pool.has_style(style, bg_color, tone):
+            bg = pool.pick_style(style, bg_color, tone)
+            return bg, bg_color, f"{style}/{bg_color}_{tone}"
+        if style:
+            print(
+                f"  warn: background style not found: style={style}, color={bg_color}, tone={tone}; "
+                "legacy backgroundへフォールバック"
+            )
+
+    style = DEFAULT_BACKGROUND_STYLE.get(stype)
+    if style and pool.has_style(style, slide_color, "normal"):
+        bg = pool.pick_style(style, slide_color, "normal")
+        return bg, slide_color, f"{style}/{slide_color}_normal"
+
+    bg_type = resolve_bg_type(stype, pool, slide_color)
+    bg = pool.pick(bg_type, slide_color)
+    return bg, slide_color, f"{slide_color}/{bg_type}"
 
 def text_lines_from_content(content, fallback="Generated slide"):
     if not isinstance(content, dict):
@@ -208,7 +314,7 @@ def build_deck(spec_path, pool_dir="backgrounds", output_pptx=None, work_dir="_s
             content = {"lines": text_lines_from_content(content, f"Slide {i}")}
         # 背景：明示指定があればそれ、なければプールから選択
         if stype == "message":
-            if sl.get("background"):
+            if isinstance(sl.get("background"), str):
                 bg = sl["background"]
             elif pool.has("message", slide_color):
                 bg = pool.pick("message", slide_color)
@@ -217,11 +323,11 @@ def build_deck(spec_path, pool_dir="backgrounds", output_pptx=None, work_dir="_s
                 message_idx += 1
             else:
                 bg = pool.pick("statement", slide_color)
+            bg_label = bg
         else:
-            bg_type = resolve_bg_type(stype, pool, slide_color)
-            bg = sl.get("background") or pool.pick(bg_type, slide_color)
+            bg, slide_color, bg_label = resolve_background(sl, stype, pool, default_color)
         out = os.path.join(work_dir, f"slide_{i:02d}.png")
-        print(f"  slide {i:02d}: type={stype}, color={slide_color}, bg={bg}")
+        print(f"  slide {i:02d}: type={stype}, color={slide_color}, bg={bg_label}")
         RENDERERS[stype](bg, out, content)
         pngs.append(out)
 
