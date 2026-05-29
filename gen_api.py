@@ -27,6 +27,8 @@ from build_deck import build_deck
 
 
 ROOT_DIR = os.path.dirname(__file__)
+ADMIN_HTML_PATH = os.path.join(ROOT_DIR, "admin", "index.html")
+SAMPLE_DECK_PATH = os.path.join(ROOT_DIR, "specs", "deck_sample.json")
 DEFAULT_HOST = os.environ.get("HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("PORT", "8787"))
 BACKGROUND_TYPES = ["cover", "statement", "cta", "list", "person", "multi_image"]
@@ -211,6 +213,22 @@ class GenDeckHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.close_connection = True
 
+    def _send_file(self, status, file_path, content_type):
+        try:
+            with open(file_path, "rb") as f:
+                body = f.read()
+        except OSError:
+            self._send_error_json(404, "File not found")
+            return
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+        self.close_connection = True
+
     def _send_error_json(self, status, message, detail=None):
         payload = {"ok": False, "error": message}
         if detail:
@@ -227,9 +245,16 @@ class GenDeckHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "service": "genDeck PPTX Generator",
                     "actions": ["generateSmokeDeck", "generateDeckFromJsonQuery"],
+                    "admin_url": f"{self._public_base_url()}/admin",
                     "openapi_url": f"{self._public_base_url()}/openapi.json",
                 },
             )
+            return
+        if path in ("/admin", "/admin/", "/admin.html"):
+            self._send_file(200, ADMIN_HTML_PATH, "text/html; charset=utf-8")
+            return
+        if path == "/sample-deck.json":
+            self._send_file(200, SAMPLE_DECK_PATH, "application/json; charset=utf-8")
             return
         if path == "/health":
             self._send_json(200, {"ok": True})

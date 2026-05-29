@@ -219,6 +219,12 @@ curl http://127.0.0.1:8787/health
 curl http://127.0.0.1:8787/openapi.json
 ```
 
+管理画面:
+
+```text
+http://127.0.0.1:8787/admin
+```
+
 PPTX生成:
 
 ```bash
