@@ -15,7 +15,7 @@ returns JSON metadata. GET /generate-json is a Custom GPT Actions fallback for
 environments where POST request bodies fail before reaching the API.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 import argparse
 import json
 import os
@@ -377,7 +377,7 @@ class GenDeckHandler(BaseHTTPRequestHandler):
 
             filename = os.path.basename(output_pptx)
             relative_path = os.path.join("dist", "api", filename)
-            download_url = f"{self._public_base_url()}/files/{filename}"
+            download_url = f"{self._public_base_url()}/files/{quote(filename)}"
             self._send_json(
                 200,
                 {
@@ -420,7 +420,11 @@ class GenDeckHandler(BaseHTTPRequestHandler):
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        fallback_filename = filename.encode("ascii", "ignore").decode("ascii") or "deck.pptx"
+        self.send_header(
+            "Content-Disposition",
+            f"attachment; filename=\"{fallback_filename}\"; filename*=UTF-8''{quote(filename)}",
+        )
         self.send_header("Connection", "close")
         self.end_headers()
         if not head_only:
