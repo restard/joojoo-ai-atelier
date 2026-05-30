@@ -15,7 +15,7 @@ slide_render.py の9型レンダラーで描画、PPTXにまとめる。
 import argparse, json, os
 import tempfile
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from slide_render import (
     render_cover, render_list, render_statement, render_message_over_image,
     render_multi_image, render_before_after, render_three_column,
@@ -55,6 +55,15 @@ BACKGROUND_ALIASES = {
     "process": "statement",
     "choice": "statement",
     "offer": "cta",
+}
+LEGACY_BACKGROUND_TYPES = {
+    "cover",
+    "statement",
+    "cta",
+    "list",
+    "person",
+    "multi_image",
+    "message",
 }
 
 BACKGROUND_STYLES = {
@@ -187,6 +196,110 @@ class BackgroundPool:
         img = imgs[self.idx[key] % len(imgs)]
         self.idx[key] += 1
         return img
+
+
+class RemoteBackgroundPool:
+    """R2などの公開URLに置いた背景プールを、ローカル背景プールと同じAPIで扱う。"""
+    def __init__(self, base_url, manifest_url=None):
+        self.base_url = base_url.rstrip("/")
+        self.manifest_url = manifest_url
+        self.pool, self.style_pool, self.idx = {}, {}, {}
+        self.pool_dir = self.base_url
+        self._load_manifest()
+
+    def _load_manifest(self):
+        manifest_url = self.manifest_url or f"{self.base_url}/manifest.json"
+        try:
+            request = urllib.request.Request(manifest_url, headers={"User-Agent": "genDeck/0.1"})
+            with urllib.request.urlopen(request, timeout=REMOTE_BACKGROUND_TIMEOUT) as response:
+                if response.status != 200:
+                    return
+                manifest = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            return
+
+        for color, by_type in (manifest.get("backgrounds") or {}).items():
+            for slide_type, paths in by_type.items():
+                urls = [self._asset_url(path) for path in paths]
+                if urls:
+                    self.pool.setdefault(color, {})[slide_type] = urls
+                    self.idx[(color, slide_type)] = 0
+        for style, by_color in (manifest.get("styles") or {}).items():
+            for color, by_tone in by_color.items():
+                for tone, paths in by_tone.items():
+                    urls = [self._asset_url(path) for path in paths]
+                    if urls:
+                        self.style_pool.setdefault(style, {}).setdefault(color, {})[tone] = urls
+                        self.idx[(style, color, tone)] = 0
+
+    def _asset_url(self, path):
+        if is_remote_url(path):
+            return path
+        parts = [quote(part) for part in str(path).strip("/").split("/") if part]
+        return f"{self.base_url}/{'/'.join(parts)}"
+
+    def has(self, slide_type, color):
+        if self.pool:
+            return (
+                (color in self.pool and slide_type in self.pool[color])
+                or ("default" in self.pool and slide_type in self.pool["default"])
+            )
+        return slide_type in LEGACY_BACKGROUND_TYPES
+
+    def pick(self, slide_type, color):
+        if self.pool:
+            if not self.has(slide_type, color):
+                raise ValueError(
+                    f"R2背景プールに色 '{color}'・型 '{slide_type}' がありません"
+                    f"（{self.pool_dir}/manifest.json を確認）"
+                )
+            actual_color = color if color in self.pool and slide_type in self.pool[color] else "default"
+            imgs = self.pool[actual_color][slide_type]
+            key = (actual_color, slide_type)
+            img = imgs[self.idx[key] % len(imgs)]
+            self.idx[key] += 1
+            return img
+        return self._asset_url(f"{color}/{slide_type}.png")
+
+    def has_style(self, style, color, tone="normal"):
+        return (
+            style in self.style_pool
+            and (
+                (color in self.style_pool[style] and tone in self.style_pool[style][color])
+                or ("default" in self.style_pool[style] and tone in self.style_pool[style]["default"])
+            )
+        )
+
+    def pick_style(self, style, color, tone="normal"):
+        if not self.has_style(style, color, tone):
+            raise ValueError(
+                f"R2背景プールにstyle '{style}'・色 '{color}'・tone '{tone}' がありません"
+                f"（{self.pool_dir}/manifest.json を確認）"
+            )
+        actual_color = (
+            color
+            if color in self.style_pool[style] and tone in self.style_pool[style][color]
+            else "default"
+        )
+        imgs = self.style_pool[style][actual_color][tone]
+        key = (style, actual_color, tone)
+        img = imgs[self.idx[key] % len(imgs)]
+        self.idx[key] += 1
+        return img
+
+
+def create_background_pool(pool_dir, spec=None):
+    remote_pool_url = (
+        (spec or {}).get("background_pool_url")
+        or os.environ.get("BACKGROUND_POOL_URL")
+    )
+    if remote_pool_url:
+        manifest_url = (
+            (spec or {}).get("background_pool_manifest_url")
+            or os.environ.get("BACKGROUND_POOL_MANIFEST_URL")
+        )
+        return RemoteBackgroundPool(remote_pool_url, manifest_url=manifest_url)
+    return BackgroundPool(pool_dir)
 
 
 def resolve_bg_type(stype, pool, color):
@@ -348,7 +461,7 @@ def build_deck(spec_path, pool_dir="backgrounds", output_pptx=None, work_dir="_s
         spec = json.load(f)
 
     title = spec.get("deck_title", "deck")
-    pool = BackgroundPool(pool_dir)
+    pool = create_background_pool(pool_dir, spec)
     default_color = spec.get("color", color)
     output_pptx = output_pptx or f"{title}_{default_color}.pptx"
     slides = spec["slides"]

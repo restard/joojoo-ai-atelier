@@ -189,6 +189,26 @@ backgrounds/{type}/bg_01.png
 
 `background.url` は `http` / `https` の画像URLに対応しています。生成時に一時ダウンロードして既存レンダラーへ渡します。
 
+背景プール全体をR2などの公開URLから読む場合は、APIサーバーに `BACKGROUND_POOL_URL` を設定します。
+
+```bash
+export BACKGROUND_POOL_URL="https://pub-xxxxx.r2.dev/backgrounds"
+```
+
+この場合、通常の背景は次のURLから読みます。
+
+```text
+{BACKGROUND_POOL_URL}/{color}/{type}.png
+```
+
+例:
+
+```text
+https://pub-xxxxx.r2.dev/backgrounds/terracotta/statement.png
+```
+
+複数背景やstyle形式を使う場合は、任意で `BACKGROUND_POOL_MANIFEST_URL` を指定できます。未指定時は `{BACKGROUND_POOL_URL}/manifest.json` があれば自動で読みます。
+
 対応している `type`:
 
 ```text
