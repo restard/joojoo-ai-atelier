@@ -59,7 +59,6 @@ BACKGROUND_STYLES = {
     "paper_stage",
     "postcard_cta",
     "photo_frame",
-    "dark_reverse",
 }
 
 DEFAULT_BACKGROUND_STYLE = {
@@ -215,10 +214,22 @@ def resolve_background(slide, stype, pool, default_color):
     if style and pool.has_style(style, slide_color, "normal"):
         bg = pool.pick_style(style, slide_color, "normal")
         return bg, slide_color, f"{style}/{slide_color}_normal"
+    if style and pool.has_style(style, slide_color, "reverse"):
+        bg = pool.pick_style(style, slide_color, "reverse")
+        return bg, slide_color, f"{style}/{slide_color}_reverse"
 
     bg_type = resolve_bg_type(stype, pool, slide_color)
     bg = pool.pick(bg_type, slide_color)
     return bg, slide_color, f"{slide_color}/{bg_type}"
+
+def is_reverse_background(bg_label):
+    return (
+        isinstance(bg_label, str)
+        and (
+            bg_label.endswith("_reverse")
+            or "_reverse." in bg_label
+        )
+    )
 
 def text_lines_from_content(content, fallback="Generated slide"):
     if not isinstance(content, dict):
@@ -326,6 +337,9 @@ def build_deck(spec_path, pool_dir="backgrounds", output_pptx=None, work_dir="_s
             bg_label = bg
         else:
             bg, slide_color, bg_label = resolve_background(sl, stype, pool, default_color)
+        if is_reverse_background(bg_label) and isinstance(content, dict) and "reverse" not in content:
+            content = dict(content)
+            content["reverse"] = True
         out = os.path.join(work_dir, f"slide_{i:02d}.png")
         print(f"  slide {i:02d}: type={stype}, color={slide_color}, bg={bg_label}")
         RENDERERS[stype](bg, out, content)

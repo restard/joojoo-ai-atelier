@@ -21,6 +21,7 @@ assets/
 refs/
 specs/
 backgrounds/
+local/
 docs/
 
 # Public-safe samples and docs.
@@ -38,6 +39,7 @@ docs/api/*
 !docs/specs/
 docs/specs/*
 !docs/specs/無料管理画面_最小フロー.md
+!docs/specs/背景生成ガイドライン.md
 !docs/deploy/
 docs/deploy/*
 !docs/deploy/公開デプロイ手順.md
