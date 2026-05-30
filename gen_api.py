@@ -49,6 +49,11 @@ DEMO_COLORS = {
         "light": (247, 238, 222),
     },
 }
+R2_ENV_KEYS = (
+    "R2_BUCKET",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+)
 
 SMOKE_DECK = {
     "deck_title": "action_smoke_test",
@@ -114,6 +119,71 @@ def ensure_demo_backgrounds():
             Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB").save(path, quality=95)
 
 
+def r2_configured():
+    return all(os.environ.get(key) for key in R2_ENV_KEYS) and (
+        os.environ.get("R2_ENDPOINT_URL") or os.environ.get("R2_ACCOUNT_ID")
+    )
+
+
+def upload_to_r2(file_path, filename):
+    if not r2_configured():
+        return None
+
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError("R2 upload requires boto3. Add boto3 to requirements.txt.") from exc
+
+    endpoint_url = os.environ.get("R2_ENDPOINT_URL")
+    if not endpoint_url:
+        endpoint_url = f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+    bucket = os.environ["R2_BUCKET"]
+    prefix = os.environ.get("R2_PREFIX", "gendeck").strip("/")
+    key = f"{prefix}/{filename}" if prefix else filename
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        region_name=os.environ.get("R2_REGION", "auto"),
+    )
+    client.upload_file(
+        file_path,
+        bucket,
+        key,
+        ExtraArgs={
+            "ContentType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        },
+    )
+
+    public_base_url = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
+    return {
+        "bucket": bucket,
+        "key": key,
+        "download_url": f"{public_base_url}/{quote(key)}" if public_base_url else None,
+    }
+
+
+def generation_result_schema():
+    return {
+        "type": "object",
+        "required": ["ok", "filename", "relative_path", "download_url", "size_bytes"],
+        "properties": {
+            "ok": {"type": "boolean"},
+            "filename": {"type": "string"},
+            "relative_path": {"type": "string"},
+            "download_url": {"type": "string"},
+            "local_download_url": {"type": "string"},
+            "storage": {"type": "string", "enum": ["local", "r2"]},
+            "r2_object_key": {"type": ["string", "null"]},
+            "size_bytes": {"type": "integer"},
+            "message": {"type": "string"},
+        },
+        "additionalProperties": True,
+    }
+
+
 def openapi_schema(host, port, public_url=None):
     base_url = public_url or f"http://{host}:{port}"
     return {
@@ -135,19 +205,7 @@ def openapi_schema(host, port, public_url=None):
                             "description": "Generation result",
                             "content": {
                                 "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "required": ["ok", "filename", "relative_path", "download_url", "size_bytes"],
-                                        "properties": {
-                                            "ok": {"type": "boolean"},
-                                            "filename": {"type": "string"},
-                                            "relative_path": {"type": "string"},
-                                            "download_url": {"type": "string"},
-                                            "size_bytes": {"type": "integer"},
-                                            "message": {"type": "string"},
-                                        },
-                                        "additionalProperties": True,
-                                    }
+                                    "schema": generation_result_schema()
                                 }
                             },
                         },
@@ -174,19 +232,7 @@ def openapi_schema(host, port, public_url=None):
                             "description": "Generation result",
                             "content": {
                                 "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "required": ["ok", "filename", "relative_path", "download_url", "size_bytes"],
-                                        "properties": {
-                                            "ok": {"type": "boolean"},
-                                            "filename": {"type": "string"},
-                                            "relative_path": {"type": "string"},
-                                            "download_url": {"type": "string"},
-                                            "size_bytes": {"type": "integer"},
-                                            "message": {"type": "string"},
-                                        },
-                                        "additionalProperties": True,
-                                    }
+                                    "schema": generation_result_schema()
                                 }
                             },
                         },
@@ -377,7 +423,10 @@ class GenDeckHandler(BaseHTTPRequestHandler):
 
             filename = os.path.basename(output_pptx)
             relative_path = os.path.join("dist", "api", filename)
-            download_url = f"{self._public_base_url()}/files/{quote(filename)}"
+            local_download_url = f"{self._public_base_url()}/files/{quote(filename)}"
+            r2_result = upload_to_r2(output_pptx, filename)
+            download_url = (r2_result or {}).get("download_url") or local_download_url
+            storage = "r2" if r2_result else "local"
             self._send_json(
                 200,
                 {
@@ -385,8 +434,15 @@ class GenDeckHandler(BaseHTTPRequestHandler):
                     "filename": filename,
                     "relative_path": relative_path,
                     "download_url": download_url,
+                    "local_download_url": local_download_url,
+                    "storage": storage,
+                    "r2_object_key": (r2_result or {}).get("key"),
                     "size_bytes": os.path.getsize(output_pptx),
-                    "message": "PPTX generated and saved on the API server.",
+                    "message": (
+                        "PPTX generated and uploaded to R2."
+                        if r2_result
+                        else "PPTX generated and saved on the API server."
+                    ),
                 },
             )
         except Exception as exc:

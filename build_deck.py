@@ -13,6 +13,9 @@ slide_render.py の9型レンダラーで描画、PPTXにまとめる。
   python build_deck.py specs/deck_taniuchi.json --color terracotta
 """
 import argparse, json, os
+import tempfile
+import urllib.request
+from urllib.parse import urlparse
 from slide_render import (
     render_cover, render_list, render_statement, render_message_over_image,
     render_multi_image, render_before_after, render_three_column,
@@ -82,6 +85,7 @@ MESSAGE_FALLBACKS = [
     "assets/message1.webp",
     "assets/message2.webp",
 ]
+REMOTE_BACKGROUND_TIMEOUT = int(os.environ.get("REMOTE_BACKGROUND_TIMEOUT", "20"))
 
 
 class BackgroundPool:
@@ -198,6 +202,10 @@ def resolve_background(slide, stype, pool, default_color):
         return bg_spec, slide_color, bg_spec
 
     if isinstance(bg_spec, dict):
+        bg_url = bg_spec.get("url") or bg_spec.get("source_url")
+        if bg_url:
+            return bg_url, slide_color, bg_url
+
         style = bg_spec.get("style") or DEFAULT_BACKGROUND_STYLE.get(stype)
         bg_color = bg_spec.get("color") or slide_color
         tone = bg_spec.get("tone") or "normal"
@@ -230,6 +238,39 @@ def is_reverse_background(bg_label):
             or "_reverse." in bg_label
         )
     )
+
+def is_remote_url(value):
+    if not isinstance(value, str):
+        return False
+    return urlparse(value).scheme in ("http", "https")
+
+def extension_from_response(url, headers):
+    path_ext = os.path.splitext(urlparse(url).path)[1].lower()
+    if path_ext in (".png", ".jpg", ".jpeg", ".webp"):
+        return path_ext
+    content_type = headers.get("Content-Type", "").split(";")[0].strip().lower()
+    return {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+    }.get(content_type, ".png")
+
+def download_background(url, work_dir, slide_index):
+    remote_dir = os.path.join(work_dir, "_remote_backgrounds")
+    os.makedirs(remote_dir, exist_ok=True)
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "genDeck/0.1"},
+    )
+    with urllib.request.urlopen(request, timeout=REMOTE_BACKGROUND_TIMEOUT) as response:
+        content_type = response.headers.get("Content-Type", "")
+        if content_type and not content_type.lower().startswith("image/"):
+            raise ValueError(f"background.url must point to an image, got {content_type}")
+        ext = extension_from_response(url, response.headers)
+        fd, tmp_path = tempfile.mkstemp(prefix=f"slide_{slide_index:02d}_", suffix=ext, dir=remote_dir)
+        with os.fdopen(fd, "wb") as f:
+            f.write(response.read())
+    return tmp_path
 
 def text_lines_from_content(content, fallback="Generated slide"):
     if not isinstance(content, dict):
@@ -337,6 +378,8 @@ def build_deck(spec_path, pool_dir="backgrounds", output_pptx=None, work_dir="_s
             bg_label = bg
         else:
             bg, slide_color, bg_label = resolve_background(sl, stype, pool, default_color)
+        if is_remote_url(bg):
+            bg = download_background(bg, work_dir, i)
         if is_reverse_background(bg_label) and isinstance(content, dict) and "reverse" not in content:
             content = dict(content)
             content["reverse"] = True

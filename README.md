@@ -173,6 +173,22 @@ backgrounds/{type}/bg_01.png
 
 優先順は `background` の明示指定 → スライドの `color` → デッキ全体の `color` → CLIの `--color` です。
 
+背景画像をURLで直接指定する場合:
+
+```json
+{
+  "type": "statement",
+  "background": {
+    "url": "https://example.com/background.png"
+  },
+  "content": {
+    "lines": ["URL背景で", "PPTXを生成"]
+  }
+}
+```
+
+`background.url` は `http` / `https` の画像URLに対応しています。生成時に一時ダウンロードして既存レンダラーへ渡します。
+
 対応している `type`:
 
 ```text
@@ -211,6 +227,18 @@ HOST=0.0.0.0 PORT=8787 PUBLIC_URL=https://example.onrender.com python3 gen_api.p
 ```
 
 `PUBLIC_URL` を指定しない場合でも、プロキシ経由の `/openapi.json` では `X-Forwarded-Proto` と `Host` から公開URLを推定します。
+
+生成済みPPTXをCloudflare R2へ保存する場合は、次の環境変数を設定します。未設定の場合は従来通りローカルの `/files/...` URLを返します。
+
+```bash
+export R2_ACCOUNT_ID="..."
+export R2_BUCKET="gendeck"
+export R2_ACCESS_KEY_ID="..."
+export R2_SECRET_ACCESS_KEY="..."
+export R2_PUBLIC_URL="https://files.example.com"
+```
+
+任意で `R2_ENDPOINT_URL`、`R2_PREFIX`、`R2_REGION` も指定できます。`R2_PUBLIC_URL` がある場合、APIレスポンスの `download_url` はR2の公開URLになります。
 
 確認:
 
