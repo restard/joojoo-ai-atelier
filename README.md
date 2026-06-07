@@ -1,4 +1,4 @@
-# joojoo.ai.atelier 作業場
+# joojoo.ai.atelier
 
 最終更新: 2026年6月7日
 
