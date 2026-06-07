@@ -1,58 +1,10 @@
 .DS_Store
 
-# Python
-__pycache__/
-*.py[cod]
+# Customer data
+customers/
 
-# Secrets / local env
-.env
-.env.*
+# Private planning notes
+private/
 
-# Generated slide images and temporary outputs
-_slides/
-outputs/
-
-# Generated deliverables may contain customer data.
-dist/
-
-# Source/customer materials may contain customer data.
-materials/
-assets/
-refs/
-specs/
-backgrounds/
-local/
-docs/
-
-# Public-safe samples and docs.
-!specs/
-specs/*
-!specs/deck_sample.json
-!docs/
-docs/*
-!docs/README.md
-!docs/api/
-docs/api/*
-!docs/api/action_openapi_generate_only_minimal.json
-!docs/api/action_openapi_current.json
-!docs/api/action_openapi_render.json
-!docs/specs/
-docs/specs/*
-!docs/specs/無料管理画面_最小フロー.md
-!docs/specs/背景生成ガイドライン.md
-!docs/deploy/
-docs/deploy/*
-!docs/deploy/公開デプロイ手順.md
-!docs/gpt-action/
-docs/gpt-action/*
-!docs/gpt-action/Custom_GPT_Action接続手順.md
-!docs/gpt-action/custom_gpt_instructions.md
-!docs/qa/
-docs/qa/*
-!docs/qa/谷内さん環境E2E確認_20260608.md
-
-# Local backups / scratch copies
-image_api copy.py
-
-# Local app/plugin settings
-.claude/
+# Historical working archive. May contain customer data and generated files.
+history/

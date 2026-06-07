@@ -1,9 +1,0 @@
-services:
-  - type: web
-    name: gendeck-api
-    runtime: docker
-    plan: free
-    autoDeploy: false
-    envVars:
-      - key: HOST
-        value: 0.0.0.0

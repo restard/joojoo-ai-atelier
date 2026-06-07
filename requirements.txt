@@ -1,5 +1,0 @@
-pillow
-numpy
-python-pptx
-qrcode
-boto3
